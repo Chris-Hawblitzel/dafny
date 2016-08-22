@@ -75,6 +75,7 @@ namespace Microsoft.Dafny
     public bool PrintFunctionCallGraph = false;
     public bool WarnShadowing = false;
     public int DeprecationNoise = 1;
+    public int Allocated = 1;
     public bool IronDafny = 
 #if ENABLE_IRONDAFNY 
       true
@@ -232,6 +233,20 @@ namespace Microsoft.Dafny
             DeprecationNoise = d;
           }
           return true;
+        }
+
+        case "allocatedAll": {
+            Allocated = 4;
+            return true;
+        }
+
+        case "allocated": {
+            ps.GetNumericArgument(ref Allocated, 5);
+            if (Allocated == 2 || Allocated == 3) {
+                Allocated = 1;
+                throw new Exception("/allocated:2 and /allocated:3 are not yet implemented");
+            }
+            return true;
         }
 
         case "countVerificationErrors": {
@@ -439,6 +454,27 @@ namespace Microsoft.Dafny
                 0 - don't give any warnings about deprecated features
                 1 (default) - show warnings about deprecated features
                 2 - also point out where there's new simpler syntax
+  /allocatedAll Abbreviation for /allocated:4 (see below)
+  /allocated:<n>
+                Specify defaults for where Dafny should assert and assume
+                allocated(x) for various parameters x, local variables x,
+                bound variables x, etc.  Warning: this option should be
+                chosen consistently across an entire project; it would
+                be unsound to use different defaults for different files
+                or modules within a project.
+                0 - Nowhere (never assume/assert allocated(x) by default).
+                1 (current default) - Assume allocated(x) only for non-ghost variables and fields
+                    (these assumptions are free, since non-ghost variables
+                    always contain allocated values at run-time).
+                2 (proposed future default) - Assert/assume allocated(x) for all fields
+                    and all local variables in methods (not lemmas), except
+                    inside forall blocks.
+                    NOT YET IMPLEMENTED
+                3 - Same as 2, but also assert/assume allocated(x) for lemmas.
+                    NOT YET IMPLEMENTED
+                4 - Assert/assume allocated(x) on all variables, even bound
+                    variables in quantifiers.  This is the original Dafny
+                    behavior.
   /ironDafny    Enable experimental features needed to support Ironclad/Ironfleet. Use of
                 these features may cause your code to become incompatible with future
                 releases of Dafny.

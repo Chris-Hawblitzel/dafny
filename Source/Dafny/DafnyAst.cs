@@ -3679,6 +3679,7 @@ namespace Microsoft.Dafny {
   }
 
   public class Formal : NonglobalVariable {
+    public Attributes Attributes;
     public readonly bool InParam;  // true to in-parameter, false for out-parameter
     public override bool IsMutable {
       get {
@@ -3687,13 +3688,14 @@ namespace Microsoft.Dafny {
     }
     public readonly bool IsOld;
 
-    public Formal(IToken tok, string name, Type type, bool inParam, bool isGhost, bool isOld = false)
+    public Formal(IToken tok, string name, Type type, bool inParam, bool isGhost, bool isOld = false, Attributes attrs = null)
       : base(tok, name, type, isGhost) {
       Contract.Requires(tok != null);
       Contract.Requires(name != null);
       Contract.Requires(type != null);
       InParam = inParam;
       IsOld = isOld;
+      Attributes = attrs;
     }
 
     public bool HasName {
@@ -3889,6 +3891,8 @@ namespace Microsoft.Dafny {
 
     [Pure]
     public bool IsFuelAware() { return IsRecursive || IsFueled; }
+
+    public bool ReadsHeap { get { return Reads.Count != 0; } }
   }
 
   public class Predicate : Function
@@ -7244,6 +7248,7 @@ namespace Microsoft.Dafny {
       Not,
       Cardinality,
       Fresh,
+      Allocated,
       Lit,  // there is no syntax for this operator, but it is sometimes introduced during translation
     }
     public readonly Opcode Op;

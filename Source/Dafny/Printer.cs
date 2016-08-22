@@ -706,6 +706,7 @@ namespace Microsoft.Dafny {
 
     void PrintFormal(Formal f, bool showNewKeyword) {
       Contract.Requires(f != null);
+      PrintAttributes(f.Attributes);
       if (showNewKeyword && !f.IsOld) {
         wr.Write("new ");
       }
@@ -1707,6 +1708,10 @@ namespace Microsoft.Dafny {
           wr.Write("|");
         } else if (e.Op == UnaryOpExpr.Opcode.Fresh) {
           wr.Write("fresh(");
+          PrintExpression(e.E, false);
+          wr.Write(")");
+        } else if (e.Op == UnaryOpExpr.Opcode.Allocated) {
+          wr.Write("allocated(");
           PrintExpression(e.E, false);
           wr.Write(")");
         } else {
