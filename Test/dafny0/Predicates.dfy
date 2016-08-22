@@ -150,7 +150,7 @@ module Q0 {
     }
     method M()
       modifies this;
-      ensures forall c: C :: c != null ==> c.P();
+      ensures forall c:C:: allocated(c)==> c.P();
     {  // error: in module Q1, the postcondition no longer holds
     }
     predicate Q()

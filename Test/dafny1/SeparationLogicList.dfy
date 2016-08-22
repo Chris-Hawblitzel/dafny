@@ -36,6 +36,7 @@ class Node<T> {
   }
 
   static method Cons(x: T, tail: Node<T>, ghost q: seq<T>, ghost S: set<Node<T>>) returns (l: Node<T>, ghost U: set<Node<T>>)
+    requires allocated(S); // needed with /allocated:1, not needed with /allocated:>=2
     requires ListSegment(q, tail, null, S);
     ensures ListSegment([x] + q, l, null, U) && fresh(U - S);
   {

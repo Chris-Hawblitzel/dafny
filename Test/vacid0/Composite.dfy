@@ -37,6 +37,7 @@ class Composite {
   }
 
   method Update(x: int, ghost S: set<Composite>)
+    requires allocated(S); // needed with /allocated:1, not needed with /allocated:>=2
     requires this in S && Acyclic(S);
     requires (forall c :: c in S ==> c != null && c.Valid(S));
     modifies S;
@@ -51,6 +52,7 @@ class Composite {
   }
 
   method Add(ghost S: set<Composite>, child: Composite, ghost U: set<Composite>)
+    requires allocated(S) && allocated(U); // needed with /allocated:1, not needed with /allocated:>=2
     requires this in S && Acyclic(S);
     requires (forall c :: c in S ==> c != null && c.Valid(S));
     requires child != null && child in U;
@@ -80,6 +82,7 @@ class Composite {
   }
 
   method Dislodge(ghost S: set<Composite>)
+    requires allocated(S); // needed with /allocated:1, not needed with /allocated:>=2
     requires this in S && Acyclic(S);
     requires (forall c :: c in S ==> c != null && c.Valid(S));
     modifies S;
@@ -105,6 +108,7 @@ class Composite {
   }
 
   /*private*/ method Adjust(delta: int, ghost U: set<Composite>, ghost S: set<Composite>)
+    requires allocated(S); // needed with /allocated:1, not needed with /allocated:>=2
     requires U <= S && Acyclic(U);
     // everything else is valid:
     requires (forall c :: c in S && c != this ==> c != null && c.Valid(S));

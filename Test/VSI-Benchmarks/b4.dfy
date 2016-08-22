@@ -128,6 +128,7 @@ class Map<Key(==),Value> {
       // NOTE: This is a place where a two-state lemma would be highly useful
       ghost var s', p' := Spine, head;
       while p' != null
+        invariant p' == null || allocated(p') // needed with /allocated:1, not needed with /allocated:>=2
         invariant !fresh(p')
         invariant old(SpineValid(s', p'))
         invariant old(SpineValid(Spine, head)) ==> SpineValid(Spine, head) || !SpineValid(s', p')

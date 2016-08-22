@@ -1,4 +1,4 @@
-// RUN: %dafny /compile:0 /rprint:"%t.rprint" /autoTriggers:0 "%s" > "%t"
+// RUN: %dafny /compile:0 /rprint:"%t.rprint" /autoTriggers:0 /allocatedAll "%s" > "%t"
 // RUN: %diff "%s.expect" "%t"
 
 // This file is a Dafny encoding of chapter 7 from "Concrete Semantics: With Isabelle/HOL" by
@@ -362,3 +362,4 @@ lemma lemma_7_18(c: com, s: state)
 }
 
 // Autotriggers:0 added as this file relies on proving a property of the form body(f) == f
+// allocated:4 added because /autoTriggers:0 relies on triggers that aren't reliable

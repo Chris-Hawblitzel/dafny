@@ -1,4 +1,4 @@
-// RUN: %dafny /compile:0 /dprint:"%t.dprint" /autoTriggers:0 "%s" > "%t"
+// RUN: %dafny /compile:0 /dprint:"%t.dprint" "%s" > "%t"
 // RUN: %diff "%s.expect" "%t"
 
 // Rustan Leino
@@ -18,6 +18,7 @@ datatype Path = Empty | Extend(Path, Node)
 
 class Main {
   method RecursiveMark(root: Node, ghost S: set<Node>)
+    requires allocated(S); // needed with /allocated:1, not needed with /allocated:>=2
     requires root in S
     // S is closed under 'children':
     requires forall n :: n in S ==> n != null &&
@@ -36,6 +37,7 @@ class Main {
   }
 
   method RecursiveMarkWorker(root: Node, ghost S: set<Node>, ghost stackNodes: set<Node>)
+    requires allocated(S) && allocated(stackNodes); // needed with /allocated:1, not needed with /allocated:>=2
     requires root != null && root in S
     requires forall n :: n in S ==> n != null &&
                 forall ch :: ch in n.children ==> ch == null || ch in S
@@ -83,6 +85,7 @@ class Main {
   // ---------------------------------------------------------------------------------
 
   method IterativeMark(root: Node, ghost S: set<Node>)
+    requires allocated(S); // needed with /allocated:1, not needed with /allocated:>=2
     requires root in S
     // S is closed under 'children':
     requires forall n :: n in S ==> n != null &&
@@ -106,7 +109,7 @@ class Main {
       // stackNodes has no duplicates:
       invariant forall i, j :: 0 <= i < j < |stackNodes| ==>
                   stackNodes[i] != stackNodes[j]
-      invariant forall n :: n in stackNodes ==> n in S
+      invariant forall i :: 0 <= i < |stackNodes| ==> stackNodes[i] in S
       invariant forall n :: n in stackNodes || n == t ==>
                   n.marked &&
                   0 <= n.childrenVisited <= |n.children| &&
@@ -168,6 +171,7 @@ class Main {
   }
 
   method SchorrWaite(root: Node, ghost S: set<Node>)
+    requires allocated(S); // needed with /allocated:1, not needed with /allocated:>=2
     requires root in S
     // S is closed under 'children':
     requires forall n :: n in S ==> n != null &&
@@ -217,6 +221,7 @@ class Main {
                   forall j :: 0 <= j < |n.children| ==>
                     j == n.childrenVisited || n.children[j] == old(n.children[j])
       // every marked node is reachable:
+      invariant allocated(path); // needed with /allocated:1, not needed with /allocated:>=2
       invariant !fresh(path);  // needed to show 'path' worthy as argument to old(Reachable(...))
       invariant old(ReachableVia(root, path, t, S));
       invariant forall n, pth {:nowarn} :: n in S && n.marked && pth == n.pathFromRoot ==> !fresh(pth)

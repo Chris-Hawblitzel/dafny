@@ -153,6 +153,7 @@ class Node {
   }
 
   method Cyclic(ghost S: set<Node>) returns (reachesCycle: bool)
+    requires allocated(S); // needed with /allocated:1, not needed with /allocated:>=2
     requires IsClosed(S);
     ensures reachesCycle <==> exists n :: n != null && Reaches(n, S) && n.next != null && n.next.Reaches(n, S);
   {

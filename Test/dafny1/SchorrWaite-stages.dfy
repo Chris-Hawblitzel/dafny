@@ -37,6 +37,7 @@ abstract module M0 {
   }
 
   method SchorrWaite(root: Node, ghost S: set<Node>)
+    requires allocated(S); // needed with /allocated:1, not needed with /allocated:>=2
     requires root in S
     // S is closed under 'children':
     requires forall n :: n in S ==> n != null &&
@@ -61,7 +62,7 @@ abstract module M0 {
     ghost var stackNodes: seq<Node> := [];
     while true
       // stackNodes is a sequence of nodes from S:
-      invariant forall n :: n in stackNodes ==> n in S
+      invariant forall i :: 0 <= i < |stackNodes| ==> stackNodes[i] in S
 
       // The current node, t, is not included in stackNodes.  Rather, t is just above the top of stackNodes.
       // We say that the stack stackNodes+[t] are the "active" nodes.
@@ -216,6 +217,7 @@ abstract module M2 refines M1 {
       // references, we need to make sure we can deal with the proof obligation for the path
       // argument.  For this reason, we add invariants that say that "path" and the .pathFromRoot
       // field of all marked nodes contain values that make sense in the pre-state.
+      invariant allocated(path) // needed with /allocated:1, not needed with /allocated:>=2
       invariant !fresh(path) && old(ReachableVia(root, path, t, S))
       invariant forall n :: n in S && n.marked ==> var pth := n.pathFromRoot;
                   !fresh(pth) && old(ReachableVia(root, pth, n, S))
