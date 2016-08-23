@@ -5545,7 +5545,7 @@ namespace Microsoft.Dafny {
           CheckSubrange(ee.tok, etran.TrExpr(ee), ee.Type, et, builder);
           Bpl.Cmd cmd = Bpl.Cmd.SimpleAssign(p.tok, lhs, CondApplyBox(p.tok, etran.TrExpr(ee), cce.NonNull(ee.Type), et));
           builder.Add(cmd);
-          if (!etran.UsesOldHeap) {
+          if (AlwaysUseHeap && !etran.UsesOldHeap) {
             // the argument can't be assumed to be allocated for the old heap
             builder.Add(new Bpl.CommentCmd("assume allocatedness for argument to function"));
             builder.Add(TrAssumeCmd(e.Args[i].tok, MkIsAlloc(lhs, et, etran.HeapExpr)));
@@ -5946,7 +5946,9 @@ namespace Microsoft.Dafny {
         builder.Add(TrAssumeCmd(expr.tok, Bpl.Expr.Eq(result, bResult)));
         builder.Add(TrAssumeCmd(expr.tok, CanCallAssumption(expr, etran)));
         builder.Add(new CommentCmd("CheckWellformedWithResult: any expression"));
-        builder.Add(TrAssumeCmd(expr.tok, MkIsAlloc(result, resultType, etran.HeapExpr)));
+        if (AlwaysUseHeap) {
+          builder.Add(TrAssumeCmd(expr.tok, MkIsAlloc(result, resultType, etran.HeapExpr)));
+        }
         builder.Add(TrAssumeCmd(expr.tok, MkIs(result, resultType)));
       }
     }
@@ -6009,7 +6011,9 @@ namespace Microsoft.Dafny {
           builder.Add(TrAssumeCmd(letBody.tok, Bpl.Expr.Eq(result, bResult)));
           builder.Add(TrAssumeCmd(letBody.tok, CanCallAssumption(letBody, etran)));
           builder.Add(new CommentCmd("CheckWellformedWithResult: Let expression"));
-          builder.Add(TrAssumeCmd(letBody.tok, MkIsAlloc(result, resultType, etran.HeapExpr)));
+          if (AlwaysUseHeap) {
+            builder.Add(TrAssumeCmd(letBody.tok, MkIsAlloc(result, resultType, etran.HeapExpr)));
+          }
           builder.Add(TrAssumeCmd(letBody.tok, MkIs(result, resultType)));
           result = null;
         }
