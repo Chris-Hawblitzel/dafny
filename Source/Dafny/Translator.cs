@@ -4053,7 +4053,7 @@ namespace Microsoft.Dafny {
       }
 
       // set up the information used to verify the method's modifies clause
-      DefineFrame(m.tok, m.Mod.Expressions, builder, localVariables, null);
+      DefineFrame(m.tok, m.Mod.Expressions, builder, localVariables, null, ISALLOC);
       if (wellformednessProc) {
         builder.Add(CaptureState(m.tok, false, "initial state"));
       } else {
@@ -4078,7 +4078,7 @@ namespace Microsoft.Dafny {
       th.Type = Resolver.GetThisType(iter.tok, iter);  // resolve here
       iteratorFrame.Add(new FrameExpression(iter.tok, th, null));
       iteratorFrame.AddRange(iter.Modifies.Expressions);
-      DefineFrame(iter.tok, iteratorFrame, builder, localVariables, null);
+      DefineFrame(iter.tok, iteratorFrame, builder, localVariables, null, ISALLOC);
       builder.Add(CaptureState(iter.tok, false, "initial state"));
     }
 
@@ -4096,7 +4096,7 @@ namespace Microsoft.Dafny {
       return CaptureState(stmt.EndTok, true, null);
     }
 
-    void DefineFrame(IToken/*!*/ tok, List<FrameExpression/*!*/>/*!*/ frameClause, Bpl.StmtListBuilder/*!*/ builder, List<Variable>/*!*/ localVariables, string name)
+    void DefineFrame(IToken/*!*/ tok, List<FrameExpression/*!*/>/*!*/ frameClause, Bpl.StmtListBuilder/*!*/ builder, List<Variable>/*!*/ localVariables, string name, IsAllocType isAlloc)
     {
       Contract.Requires(tok != null);
       Contract.Requires(cce.NonNullElements(frameClause));
@@ -4111,12 +4111,14 @@ namespace Microsoft.Dafny {
       Bpl.LocalVariable frame = new Bpl.LocalVariable(tok, new Bpl.TypedIdent(tok, name ?? theFrame.Name, theFrame.Type));
       localVariables.Add(frame);
       // $_Frame := (lambda<alpha> $o: ref, $f: Field alpha :: $o != null && $Heap[$o,alloc] ==> ($o,$f) in Modifies/Reads-Clause);
+      // $_Frame := (lambda<alpha> $o: ref, $f: Field alpha :: $o != null                    ==> ($o,$f) in Modifies/Reads-Clause);
       Bpl.TypeVariable alpha = new Bpl.TypeVariable(tok, "alpha");
       Bpl.BoundVariable oVar = new Bpl.BoundVariable(tok, new Bpl.TypedIdent(tok, "$o", predef.RefType));
       Bpl.IdentifierExpr o = new Bpl.IdentifierExpr(tok, oVar);
       Bpl.BoundVariable fVar = new Bpl.BoundVariable(tok, new Bpl.TypedIdent(tok, "$f", predef.FieldName(tok, alpha)));
       Bpl.IdentifierExpr f = new Bpl.IdentifierExpr(tok, fVar);
-      Bpl.Expr ante = Bpl.Expr.And(Bpl.Expr.Neq(o, predef.Null), etran.IsAlloced(tok, o));
+      Bpl.Expr oNotNull = Bpl.Expr.Neq(o, predef.Null);
+      Bpl.Expr ante = (AlwaysUseHeap || isAlloc == ISALLOC) ? Bpl.Expr.And(oNotNull, etran.IsAlloced(tok, o)) : oNotNull;
       Bpl.Expr consequent = InRWClause(tok, o, f, frameClause, etran, null, null);
       Bpl.Expr lambda = new Bpl.LambdaExpr(tok, new List<TypeVariable> { alpha }, new List<Variable> { oVar, fVar }, null,
                                            Bpl.Expr.Imp(ante, consequent));
@@ -4507,7 +4509,7 @@ namespace Microsoft.Dafny {
       builder.Add(CaptureState(f.tok, false, "initial state"));
       isAllocContext = new IsAllocContext(NOALLOC);
 
-      DefineFrame(f.tok, f.Reads, builder, locals, null);
+      DefineFrame(f.tok, f.Reads, builder, locals, null, NOALLOC);
       InitializeFuelConstant(f.tok, builder, etran);
       // Check well-formedness of the preconditions (including termination), and then
       // assume each one of them.  After all that (in particular, after assuming all
@@ -4599,7 +4601,7 @@ namespace Microsoft.Dafny {
                                            * is already added. The only reason why we add the frame axiom definition
                                            * again is to make boogie gives the same trace as before the change that
                                            * makes reads clauses also guard the requires */
-                   , null);
+                   , null, NOALLOC);
 
         wfo = new WFOptions(null, true, true /* do delayed reads checks */);
         CheckWellformedWithResult(f.Body, wfo, funcAppl, f.ResultType, locals, bodyCheckBuilder, etran);
@@ -4681,7 +4683,7 @@ namespace Microsoft.Dafny {
       builder.Add(CaptureState(decl.tok, false, "initial state"));
       isAllocContext = new IsAllocContext(NOALLOC);
 
-      DefineFrame(decl.tok, new List<FrameExpression>(), builder, locals, null);
+      DefineFrame(decl.tok, new List<FrameExpression>(), builder, locals, null, NOALLOC);
 
       // check well-formedness of the constraint (including termination, and reads checks)
       CheckWellformed(decl.Constraint, new WFOptions(null, true), locals, builder, etran);
@@ -5824,7 +5826,7 @@ namespace Microsoft.Dafny {
             // Set up a new frame
             var frameName = CurrentIdGenerator.FreshId("$_Frame#l");
             reads = lam.Reads.ConvertAll(s.SubstFrameExpr);
-            DefineFrame(e.tok, reads, newBuilder, locals, frameName);
+            DefineFrame(e.tok, reads, newBuilder, locals, frameName, NOALLOC);
             newEtran = new ExpressionTranslator(newEtran, frameName);
 
             // Check frame WF and that it read covers itself
@@ -8199,7 +8201,7 @@ namespace Microsoft.Dafny {
         string modifyFrameName = "$Frame$" + suffix;
         var preModifyHeapVar = new Bpl.LocalVariable(s.Tok, new Bpl.TypedIdent(s.Tok, "$PreModifyHeap$" + suffix, predef.HeapType));
         locals.Add(preModifyHeapVar);
-        DefineFrame(s.Tok, s.Mod.Expressions, builder, locals, modifyFrameName);
+        DefineFrame(s.Tok, s.Mod.Expressions, builder, locals, modifyFrameName, ISALLOC);
         if (s.Body == null) {
           var preModifyHeap = new Bpl.IdentifierExpr(s.Tok, preModifyHeapVar);
           // preModifyHeap := $Heap;
@@ -9286,7 +9288,7 @@ namespace Microsoft.Dafny {
 
       if (s.Mod.Expressions != null) { // check that the modifies is a subset
         CheckFrameSubset(s.Tok, s.Mod.Expressions, null, null, etran, builder, "loop modifies clause may violate context's modifies clause", null);
-        DefineFrame(s.Tok, s.Mod.Expressions, builder, locals, loopFrameName);
+        DefineFrame(s.Tok, s.Mod.Expressions, builder, locals, loopFrameName, ISALLOC);
       }
       builder.Add(Bpl.Cmd.SimpleAssign(s.Tok, preLoopHeap, etran.HeapExpr));
 
