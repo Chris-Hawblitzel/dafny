@@ -9534,10 +9534,14 @@ namespace Microsoft.Dafny {
           var field = (Field)fse.Member;
           lhsType = field.Type;
           rhsTypeConstraint = Resolver.SubstType(lhsType, fse.TypeArgumentSubstitutions());
-        } else {
-          Contract.Assert(lhs is SeqSelectExpr || lhs is MultiSelectExpr);
+        } else if (lhs is SeqSelectExpr) {
+          var e = (SeqSelectExpr)lhs;
           lhsType = null;  // for arrays, always make sure the value assigned is boxed
-          rhsTypeConstraint = lhs.Type;
+          rhsTypeConstraint = e.Seq.Type.TypeArgs[0];
+        } else {
+          var e = (MultiSelectExpr)lhs;
+          lhsType = null;  // for arrays, always make sure the value assigned is boxed
+          rhsTypeConstraint = e.Array.Type.TypeArgs[0];
         }
 
         Bpl.Expr bRhs = bLhss[i];  // the RHS (bRhs) of the assignment to the actual call-LHS (lhs) was a LHS (bLhss[i]) in the Boogie call statement
@@ -10340,10 +10344,14 @@ namespace Microsoft.Dafny {
           var field = (Field)fse.Member;
           lhsType = field.Type;
           rhsTypeConstraint = Resolver.SubstType(lhsType, fse.TypeArgumentSubstitutions());
-        } else {
-          Contract.Assert(lhs is SeqSelectExpr || lhs is MultiSelectExpr);
+        } else if (lhs is SeqSelectExpr) {
+          var e = (SeqSelectExpr)lhs;
           lhsType = null;  // for an array update, always make sure the value assigned is boxed
-          rhsTypeConstraint = lhs.Type;
+          rhsTypeConstraint = e.Seq.Type.TypeArgs[0];
+        } else {
+          var e = (MultiSelectExpr)lhs;
+          lhsType = null;  // for an array update, always make sure the value assigned is boxed
+          rhsTypeConstraint = e.Array.Type.TypeArgs[0];
         }
         var bRhs = TrAssignmentRhs(rhss[i].Tok, bLhss[i], lhsType, rhss[i], rhsTypeConstraint, builder, locals, etran);
         if (bLhss[i] != null) {
@@ -10388,10 +10396,14 @@ namespace Microsoft.Dafny {
           var field = (Field)fse.Member;
           lhsType = field.Type;
           rhsTypeConstraint = Resolver.SubstType(lhsType, fse.TypeArgumentSubstitutions());
-        } else {
-          Contract.Assert(lhs is SeqSelectExpr || lhs is MultiSelectExpr);
+        } else if (lhs is SeqSelectExpr) {
+          var e = (SeqSelectExpr)lhs;
           lhsType = null;  // for an array update, always make sure the value assigned is boxed
-          rhsTypeConstraint = lhs.Type;
+          rhsTypeConstraint = e.Seq.Type.TypeArgs[0];
+        } else {
+          var e = (MultiSelectExpr)lhs;
+          lhsType = null;  // for an array update, always make sure the value assigned is boxed
+          rhsTypeConstraint = e.Array.Type.TypeArgs[0];
         }
         var bRhs = TrAssignmentRhs(rhss[i].Tok, null, lhsType, rhss[i], rhsTypeConstraint, builder, locals, etran);
         finalRhss.Add(bRhs);
@@ -10765,8 +10777,9 @@ namespace Microsoft.Dafny {
       Contract.Requires(targetType != null);
       Contract.Requires(builder != null);
 
-      // We should always be able to use Is, but this is an optimisation.
-      if (!sourceType.ExactlyEquals(targetType)) {
+      if (targetType.IsSupertypeOf_WithSubsetTypes(sourceType)) {
+        // We should always be able to use Is, but this is an optimisation.
+      } else {
         var cre = MkIs(bSource, targetType);
         var msg = string.Format("value does not satisfy the subset constraints of '{0}'", targetType.Normalize());
         builder.Add(Assert(tok, cre, msg));
