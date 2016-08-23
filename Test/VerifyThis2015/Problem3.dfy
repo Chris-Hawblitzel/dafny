@@ -1,4 +1,4 @@
-// RUN: %dafny /compile:3 /noNLarith /print:"%t.print" /dprint:"%t.dprint" "%s" > "%t"
+// RUN: %dafny /compile:3 /z3opt:smt.random_seed=3 /print:"%t.print" /dprint:"%t.dprint" "%s" > "%t"
 // RUN: %diff "%s.expect" "%t"
 
 // Rustan Leino
