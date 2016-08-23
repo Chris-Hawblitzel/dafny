@@ -9184,6 +9184,11 @@ namespace Microsoft.Dafny
             AddXConstraint(expr.tok, "Freshable", e.E.Type, "the argument of a fresh expression must denote an object or a collection of objects (instead got {0})");
             expr.Type = Type.Bool;
             break;
+          case UnaryOpExpr.Opcode.Allocated:
+            // the type of e.E must be either an object or a collection of objects
+            AddXConstraint(expr.tok, "Freshable", e.E.Type, "the argument of an allocated expression must denote an object or a collection of objects (instead got {0})");
+            expr.Type = Type.Bool;
+            break;
           default:
             Contract.Assert(false); throw new cce.UnreachableException();  // unexpected unary operator
         }
@@ -11045,6 +11050,10 @@ namespace Microsoft.Dafny
           reporter.Error(MessageSource.Resolver, expr, "fresh expressions are allowed only in specification and ghost contexts");
           return;
         }
+        if (e.Op == UnaryOpExpr.Opcode.Allocated) {
+          reporter.Error(MessageSource.Resolver, expr, "allocated expressions are allowed only in specification and ghost contexts");
+          return;
+        }
 
       } else if (expr is StmtExpr) {
         var e = (StmtExpr)expr;
@@ -12024,6 +12033,9 @@ namespace Microsoft.Dafny
         var e = (UnaryExpr)expr;
         var unaryOpExpr = e as UnaryOpExpr;
         if (unaryOpExpr != null && unaryOpExpr.Op == UnaryOpExpr.Opcode.Fresh) {
+          return true;
+        }
+        if (unaryOpExpr != null && unaryOpExpr.Op == UnaryOpExpr.Opcode.Allocated) {
           return true;
         }
         return UsesSpecFeatures(e.E);
