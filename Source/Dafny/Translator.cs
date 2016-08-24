@@ -1634,7 +1634,7 @@ namespace Microsoft.Dafny {
           var f = (Function)member;
           FuelContext oldFuelContext = this.fuelContext;
           this.fuelContext = FuelSetting.NewFuelContext(f);
-          isAllocContext = new IsAllocContext(AlwaysUseHeap ? ISALLOC : NOALLOC);
+          isAllocContext = new IsAllocContext(AlwaysUseHeap ? ISALLOC : NOALLOC, true, true);
 
           AddClassMember_Function(f);
           if (!IsOpaqueFunction(f) && !f.IsBuiltin && !(f.tok is IncludeToken)) { // Opaque function's well-formedness is checked on the full version
@@ -1760,7 +1760,7 @@ namespace Microsoft.Dafny {
 
       FuelContext oldFuelContext = this.fuelContext;      
       this.fuelContext = FuelSetting.NewFuelContext(iter);
-      isAllocContext = new IsAllocContext(MethodsUseHeap ? ISALLOC : NOALLOC);
+      isAllocContext = new IsAllocContext(MethodsUseHeap ? ISALLOC : NOALLOC, false, false);
       foreach (var p in iter.Ins.Concat(iter.Outs)) {
         isAllocContext.AddFormal(p);
       }
@@ -2262,7 +2262,7 @@ namespace Microsoft.Dafny {
         // add well-typedness conjunct to antecedent
         Bpl.Expr wh = GetWhereClause(p.tok, formal, p.Type, etran, NOALLOC);
         if (wh != null) { ante = BplAnd(ante, wh); }
-        wh = GetWhereClause(p.tok, formal, p.Type, etranHeap, NOALLOC);
+        wh = GetWhereClause(p.tok, formal, p.Type, etranHeap, ISALLOC);
         if (wh != null) { anteIsAlloc = BplAnd(anteIsAlloc, wh); }
       }
 
@@ -2313,7 +2313,9 @@ namespace Microsoft.Dafny {
       string comment = "consequence axiom for " + f.FullSanitizedName;
       var axiom = new Bpl.Axiom(f.tok, Bpl.Expr.Imp(activate, ax), comment);
 
-      if (!readsHeap) {
+      bool isAllocAxiom = true;
+      Attributes.ContainsBool(f.Attributes, "allocated", ref isAllocAxiom);
+      if (!readsHeap && isAllocAxiom && FunctionIsAllocAxioms) {
         // Add separate axiom for IsAlloc, with more restrictive trigger
         //   (forall s, formals, $Heap, $trHeap ::
         //       { f(s, args), $IsAlloc(...$trHeap...), $IsGoodHeap($Heap) }
@@ -2328,7 +2330,8 @@ namespace Microsoft.Dafny {
           var formalsHeap = formals.Concat(new List<Bpl.Variable> { bvHeap, bvTrHeap }).ToList();
           var trIsAlloc = MkIsAlloc(funcAppl, f.ResultType.NormalizeExpand(), new Bpl.IdentifierExpr(f.tok, bvTrHeap));
           var trHeap = new Bpl.Trigger(f.tok, true, new List<Bpl.Expr> { trIsAlloc, goodHeap });
-          Bpl.Expr axHeap = BplForall(f.tok, typeParams, formalsHeap, null, trHeap, BplImp(anteIsAlloc, whrAlloc));
+          Bpl.Expr axHeap = BplForall(f.tok, typeParams, formalsHeap, null, trHeap,
+            BplImp(ante, BplImp(anteIsAlloc, whrAlloc)));
           string commentHeap = "IsAlloc axiom for " + f.FullSanitizedName;
           var axiomHeap = new Bpl.Axiom(f.tok, Bpl.Expr.Imp(activate, axHeap), commentHeap);
           sink.AddTopLevelDeclaration(axiomHeap);
@@ -3125,7 +3128,7 @@ namespace Microsoft.Dafny {
 
       currentModule = m.EnclosingClass.Module;
       codeContext = m;
-      isAllocContext = new IsAllocContext((m is Lemma ? LemmasUseHeap : MethodsUseHeap) ? ISALLOC : NOALLOC);
+      isAllocContext = new IsAllocContext((m is Lemma ? LemmasUseHeap : MethodsUseHeap) ? ISALLOC : NOALLOC, m.IsGhost, false);
       foreach (var p in m.Ins.Concat(m.Outs)) {
         isAllocContext.AddFormal(p);
       }
@@ -3460,7 +3463,7 @@ namespace Microsoft.Dafny {
         Bpl.StmtListBuilder builder = new Bpl.StmtListBuilder();
         List<Variable> localVariables = new List<Variable>();
         //GenerateImplPrelude(m, wellformednessProc, inParams, outParams, builder, localVariables);
-        isAllocContext = new IsAllocContext(NOALLOC);
+        isAllocContext = new IsAllocContext(NOALLOC, true, true);
 
         var substMap = new Dictionary<IVariable, Expression>();
         for (int i = 0; i < f.Formals.Count; i++)
@@ -3682,7 +3685,7 @@ namespace Microsoft.Dafny {
 
         currentModule = m.EnclosingClass.Module;
         codeContext = m;
-        isAllocContext = new IsAllocContext((m is Lemma ? LemmasUseHeap : MethodsUseHeap) ? ISALLOC : NOALLOC);
+        isAllocContext = new IsAllocContext((m is Lemma ? LemmasUseHeap : MethodsUseHeap) ? ISALLOC : NOALLOC, m.IsGhost, false);
         foreach (var p in m.Ins.Concat(m.Outs)) {
           isAllocContext.AddFormal(p);
         }
@@ -4158,11 +4161,40 @@ namespace Microsoft.Dafny {
       Bpl.IdentifierExpr o = new Bpl.IdentifierExpr(tok, oVar);
       Bpl.BoundVariable fVar = new Bpl.BoundVariable(tok, new Bpl.TypedIdent(tok, "$f", predef.FieldName(tok, alpha)));
       Bpl.IdentifierExpr f = new Bpl.IdentifierExpr(tok, fVar);
-      Bpl.Expr ante = Bpl.Expr.And(Bpl.Expr.Neq(o, predef.Null), etran.IsAlloced(tok, o));
+      Bpl.Expr ante = BplAnd(Bpl.Expr.Neq(o, predef.Null), AlwaysUseHeap ? etran.IsAlloced(tok, o) : Bpl.Expr.True);
       Bpl.Expr oInCallee = InRWClause(tok, o, f, calleeFrame, etran, receiverReplacement, substMap);
       Bpl.Expr inEnclosingFrame = Bpl.Expr.Select(etran.TheFrame(tok), o, f);
       Bpl.Expr q = new Bpl.ForallExpr(tok, new List<TypeVariable> { alpha }, new List<Variable> { oVar, fVar },
                                       Bpl.Expr.Imp(Bpl.Expr.And(ante, oInCallee), inEnclosingFrame));
+      MakeAssert(tok, q, errorMessage, kv);
+    }
+
+    void CheckReadsAllocated(IToken tok, List<FrameExpression> calleeFrame,
+                             Expression receiverReplacement, Dictionary<IVariable,Expression/*!*/> substMap,
+                             ExpressionTranslator/*!*/ etran,
+                             Action<IToken, Bpl.Expr, string, Bpl.QKeyValue> MakeAssert,
+                             string errorMessage,
+                             Bpl.QKeyValue kv)
+    {
+      Contract.Requires(tok != null);
+      Contract.Requires(calleeFrame != null);
+      Contract.Requires((receiverReplacement == null) == (substMap == null));
+      Contract.Requires(etran != null);
+      Contract.Requires(MakeAssert != null);
+      Contract.Requires(errorMessage != null);
+      Contract.Requires(predef != null);
+
+      // emit: assert (forall<alpha> o: ref, f: Field alpha :: o != null && (o,f) in subFrame ==> $Heap[o,alloc]);
+      Bpl.TypeVariable alpha = new Bpl.TypeVariable(tok, "alpha");
+      Bpl.BoundVariable oVar = new Bpl.BoundVariable(tok, new Bpl.TypedIdent(tok, "$o", predef.RefType));
+      Bpl.IdentifierExpr o = new Bpl.IdentifierExpr(tok, oVar);
+      Bpl.BoundVariable fVar = new Bpl.BoundVariable(tok, new Bpl.TypedIdent(tok, "$f", predef.FieldName(tok, alpha)));
+      Bpl.IdentifierExpr f = new Bpl.IdentifierExpr(tok, fVar);
+      Bpl.Expr ante = Bpl.Expr.Neq(o, predef.Null);
+      Bpl.Expr oInCallee = InRWClause(tok, o, f, calleeFrame, etran, receiverReplacement, substMap);
+      Bpl.Expr alloc = etran.IsAlloced(tok, o);
+      Bpl.Expr q = new Bpl.ForallExpr(tok, new List<TypeVariable> { alpha }, new List<Variable> { oVar, fVar },
+                                      Bpl.Expr.Imp(Bpl.Expr.And(ante, oInCallee), alloc));
       MakeAssert(tok, q, errorMessage, kv);
     }
 
@@ -4489,16 +4521,7 @@ namespace Microsoft.Dafny {
           }
         }
       }
-      Bpl.Procedure proc = new Bpl.Procedure(f.tok, "CheckWellformed$$" + f.FullSanitizedName, typeParams,
-        Concat(typeInParams, inParams), new List<Variable>(),
-        req, mod, ens, etran.TrAttributes(f.Attributes, null));
-      sink.AddTopLevelDeclaration(proc);
 
-      if (InsertChecksums) {
-        InsertChecksum(f, proc, true);
-      }
-
-      Contract.Assert(proc.InParams.Count == typeInParams.Count + inParams.Count);
       // Changed the next line to strip from inParams instead of proc.InParams
       // They should be the same, but hence the added contract
       var implInParams = Bpl.Formal.StripWhereClauses(inParams);
@@ -4507,7 +4530,7 @@ namespace Microsoft.Dafny {
       var builderInitializationArea = new Bpl.StmtListBuilder();
       builder.Add(new CommentCmd("AddWellformednessCheck for function " + f));
       builder.Add(CaptureState(f.tok, false, "initial state"));
-      isAllocContext = new IsAllocContext(NOALLOC);
+      isAllocContext = new IsAllocContext(NOALLOC, true, true);
 
       DefineFrame(f.tok, f.Reads, builder, locals, null, NOALLOC);
       InitializeFuelConstant(f.tok, builder, etran);
@@ -4539,10 +4562,12 @@ namespace Microsoft.Dafny {
       //     assume false;  // don't go on to check the postconditions
       //   } else {
       //     check well-formedness of body
+      //     check that result is allocated
       //     // fall through to check the postconditions themselves
       //   }
       // Here go the postconditions (termination checks included, but no reads checks)
       StmtListBuilder postCheckBuilder = new StmtListBuilder();
+      var inArgs = new List<Tuple<Bpl.Expr, Type>>();
       // Assume the type returned by the call itself respects its type (this matters if the type is "nat", for example)
       {
         var args = new List<Bpl.Expr>();
@@ -4556,10 +4581,14 @@ namespace Microsoft.Dafny {
           args.Add(etran.HeapExpr);
         }
         if (!f.IsStatic) {
-          args.Add(new Bpl.IdentifierExpr(f.tok, etran.This, predef.RefType));
+          var arg = new Bpl.IdentifierExpr(f.tok, etran.This, predef.RefType);
+          args.Add(arg);
+          inArgs.Add(Tuple.Create<Bpl.Expr, Type>(arg, Resolver.GetReceiverType(f.tok, f)));
         }
         foreach (var p in f.Formals) {
-          args.Add(new Bpl.IdentifierExpr(p.tok, p.AssignUniqueName(f.IdGenerator), TrType(p.Type)));
+          var arg = new Bpl.IdentifierExpr(p.tok, p.AssignUniqueName(f.IdGenerator), TrType(p.Type));
+          args.Add(arg);
+          inArgs.Add(Tuple.Create((Bpl.Expr)arg, p.Type));
         }
         Bpl.IdentifierExpr funcID = new Bpl.IdentifierExpr(f.tok, f.FullSanitizedName, TrType(f.ResultType));
         Bpl.Expr funcAppl = new Bpl.NAryExpr(f.tok, new Bpl.FunctionCall(funcID), args);
@@ -4603,9 +4632,28 @@ namespace Microsoft.Dafny {
                                            * makes reads clauses also guard the requires */
                    , null, NOALLOC);
 
+        bool isAllocAxiom = true;
+        Attributes.ContainsBool(f.Attributes, "allocated", ref isAllocAxiom);
+        if (!AlwaysUseHeap && FunctionIsAllocAxioms && isAllocAxiom) {
+          isAllocContext.provingFunctionIsAllocLemma = true;
+        }
+
         wfo = new WFOptions(null, true, true /* do delayed reads checks */);
         CheckWellformedWithResult(f.Body, wfo, funcAppl, f.ResultType, locals, bodyCheckBuilder, etran);
         wfo.ProcessSavedReadsChecks(locals, builderInitializationArea, bodyCheckBuilder);
+        isAllocContext.provingFunctionIsAllocLemma = false;
+
+        if (!AlwaysUseHeap && FunctionIsAllocAxioms && isAllocAxiom && !isAllocContext.TypeIsAlwaysAllocated(f.ResultType)) {
+          // Check that allocated(inputs) ==> allocated(output)
+          Bpl.Expr ante = Bpl.Expr.True;
+          foreach (var arg in inArgs) {
+            ante = BplAnd(ante, MkIsAlloc(arg.Item1, arg.Item2, etran.HeapExpr));
+          }
+          var post = MkIsAlloc(funcAppl, f.ResultType, etran.HeapExpr);
+          ens.Add(Ensures(f.tok, false, BplImp(ante, post),
+            "Error: result of function must be allocated.  (Dafny tries to prove this by default; to override this default, mark the function as {:allocated false})",
+            null));
+        }
       }
       // Combine the two, letting the postcondition be checked on after the "bodyCheckBuilder" branch
       postCheckBuilder.Add(TrAssumeCmd(f.tok, Bpl.Expr.False));
@@ -4614,6 +4662,17 @@ namespace Microsoft.Dafny {
       var s0 = builderInitializationArea.Collect(f.tok);
       var s1 = builder.Collect(f.tok);
       var implBody = new StmtList(new List<BigBlock>(s0.BigBlocks.Concat(s1.BigBlocks)), f.tok);
+
+      Bpl.Procedure proc = new Bpl.Procedure(f.tok, "CheckWellformed$$" + f.FullSanitizedName, typeParams,
+        Concat(typeInParams, inParams), new List<Variable>(),
+        req, mod, ens, etran.TrAttributes(f.Attributes, null));
+      sink.AddTopLevelDeclaration(proc);
+      Contract.Assert(proc.InParams.Count == typeInParams.Count + inParams.Count);
+
+      if (InsertChecksums) {
+        InsertChecksum(f, proc, true);
+      }
+
       Bpl.Implementation impl = new Bpl.Implementation(f.tok, proc.Name,
         typeParams, Concat(typeInParams, implInParams), new List<Variable>(),
         locals, implBody, etran.TrAttributes(f.Attributes, null));
@@ -4681,7 +4740,7 @@ namespace Microsoft.Dafny {
       var builder = new Bpl.StmtListBuilder();
       builder.Add(new CommentCmd("AddWellformednessCheck for newtype " + decl));
       builder.Add(CaptureState(decl.tok, false, "initial state"));
-      isAllocContext = new IsAllocContext(NOALLOC);
+      isAllocContext = new IsAllocContext(NOALLOC, true, true);
 
       DefineFrame(decl.tok, new List<FrameExpression>(), builder, locals, null, NOALLOC);
 
@@ -5064,7 +5123,7 @@ namespace Microsoft.Dafny {
       }
       return total;
     }
-    void CheckNonNull(IToken tok, Expression e, Bpl.StmtListBuilder builder, ExpressionTranslator etran, Bpl.QKeyValue kv) {
+    void CheckNonNull(IToken tok, Expression e, Bpl.StmtListBuilder builder, ExpressionTranslator etran, Bpl.QKeyValue kv, bool checkAlloc) {
       Contract.Requires(tok != null);
       Contract.Requires(e != null);
       Contract.Requires(builder != null);
@@ -5077,6 +5136,9 @@ namespace Microsoft.Dafny {
         // also ok
       } else {
         builder.Add(Assert(tok, Bpl.Expr.Neq(etran.TrExpr(e), predef.Null), "target object may be null", kv));
+        if (!AlwaysUseHeap && checkAlloc) {
+          builder.Add(Assert(tok, MkIsAlloc(etran.TrExpr(e), e.Type, etran.HeapExpr), "target object may not be allocated", kv));
+        }
       }
     }
 
@@ -5331,7 +5393,7 @@ namespace Microsoft.Dafny {
         CheckFunctionSelectWF("naked function", builder, etran, e, " Possible solution: eta expansion.");
         CheckWellformed(e.Obj, options, locals, builder, etran);
         if (e.Obj.Type.IsRefType) {
-          CheckNonNull(expr.tok, e.Obj, builder, etran, options.AssertKv);
+          CheckNonNull(expr.tok, e.Obj, builder, etran, options.AssertKv, !isAllocContext.inFunction);
           // Check that the receiver is available in the state in which the dereference occurs
           if (etran.UsesOldHeap) {
             Bpl.Expr wh = GetWhereClause(expr.tok, etran.TrExpr(e.Obj), e.Obj.Type, etran, ISALLOC, true);
@@ -5361,6 +5423,9 @@ namespace Microsoft.Dafny {
         Bpl.Expr seq = etran.TrExpr(e.Seq);
         if (eSeqType.IsArrayType) {
           builder.Add(Assert(e.Seq.tok, Bpl.Expr.Neq(seq, predef.Null), "array may be null"));
+          if (!AlwaysUseHeap && !isAllocContext.inFunction) {
+            builder.Add(Assert(e.Seq.tok, MkIsAlloc(seq, eSeqType, etran.HeapExpr), "array may not be allocated"));
+          }
         }
         Bpl.Expr e0 = null;
         if (eSeqType is MapType) {
@@ -5503,23 +5568,30 @@ namespace Microsoft.Dafny {
         var precond = FunctionCall(e.tok, Requires(arity), Bpl.Type.Bool, args);
         builder.Add(Assert(expr.tok, precond, "possible violation of function precondition"));
 
+        Type objset = new SetType(true, new ObjectType());
+        Expression wrap = new BoogieWrapper(
+          FunctionCall(e.tok, Reads(arity), TrType(objset), args),
+          objset);
+        var reads = new FrameExpression(e.tok, wrap, null);
         if (options.DoReadsChecks) {
-          Type objset = new SetType(true, new ObjectType());
-          Expression wrap = new BoogieWrapper(
-            FunctionCall(e.tok, Reads(arity), TrType(objset), args),
-            objset);
-          var reads = new FrameExpression(e.tok, wrap, null);
           CheckFrameSubset(expr.tok, new List<FrameExpression>{ reads }, null, null,
             etran, options.AssertSink(this, builder), "insufficient reads clause to invoke function", options.AssertKv);
+        } else if (!AlwaysUseHeap && ReadsAreAllocated) {
+          CheckReadsAllocated(expr.tok, new List<FrameExpression>{ reads }, null, null,
+            etran, options.AssertSink(this, builder), "in function invocation, cannot prove that all objects in function's reads clause are allocated", options.AssertKv);
         }
 
       } else if (expr is FunctionCallExpr) {
         FunctionCallExpr e = (FunctionCallExpr)expr;
         Contract.Assert(e.Function != null);  // follows from the fact that expr has been successfully resolved
+        var f = e.Function;
+        bool isAllocAxiom = true;
+        Attributes.ContainsBool(f.Attributes, "allocated", ref isAllocAxiom);
+        Bpl.Expr isAllocAssumeAnte = Bpl.Expr.True;
         // check well-formedness of receiver
         CheckWellformed(e.Receiver, options, locals, builder, etran);
         if (!e.Function.IsStatic && !(e.Receiver is ThisExpr) && !e.Receiver.Type.IsArrowType) {
-          CheckNonNull(expr.tok, e.Receiver, builder, etran, options.AssertKv);
+          CheckNonNull(expr.tok, e.Receiver, builder, etran, options.AssertKv, !isAllocContext.inFunction);
         } else if (e.Receiver.Type.IsArrowType) {
           CheckFunctionSelectWF("function specification", builder, etran, e.Receiver, "");
         }
@@ -5549,6 +5621,9 @@ namespace Microsoft.Dafny {
             // the argument can't be assumed to be allocated for the old heap
             builder.Add(new Bpl.CommentCmd("assume allocatedness for argument to function"));
             builder.Add(TrAssumeCmd(e.Args[i].tok, MkIsAlloc(lhs, et, etran.HeapExpr)));
+          }
+          if (!isAllocContext.TypeIsAlwaysAllocated(et)) {
+            isAllocAssumeAnte = BplAnd(isAllocAssumeAnte, MkIsAlloc(lhs, et, etran.HeapExpr));
           }
         }
         // Check that every parameter is available in the state in which the function is invoked; this means checking that it has
@@ -5596,6 +5671,13 @@ namespace Microsoft.Dafny {
           CheckFrameSubset(expr.tok,
             e.Function.Reads.ConvertAll(s.SubstFrameExpr),
             e.Receiver, substMap, etran, options.AssertSink(this, builder), "insufficient reads clause to invoke function", options.AssertKv);
+        } else if (!AlwaysUseHeap && ReadsAreAllocated && f.ReadsHeap) {
+          // check that the callee reads are allocated
+          var s = new Substituter(null, new Dictionary<IVariable,Expression>(), e.TypeArgumentSubstitutions, this);
+          CheckReadsAllocated(expr.tok,
+            e.Function.Reads.ConvertAll(s.SubstFrameExpr),
+            e.Receiver, substMap, etran, options.AssertSink(this, builder),
+            "in function invocation, cannot prove that all objects in function's reads clause are allocated", options.AssertKv);
         }
 
         Bpl.Expr allowance = null;
@@ -5656,7 +5738,11 @@ namespace Microsoft.Dafny {
           // There is only one constructor, so the value must be been constructed by it; might as well assume that here.
           builder.Add(TrAssumeCmd(expr.tok, correctConstructor));
         }
-        
+
+        if (!AlwaysUseHeap && FunctionIsAllocAxioms && isAllocAxiom && isAllocContext.provingFunctionIsAllocLemma) {
+          var allocAssume = BplImp(isAllocAssumeAnte, MkIsAlloc(etran.TrExpr(expr), expr.Type, etran.HeapExpr));
+          builder.Add(TrAssumeCmd(expr.tok, allocAssume));
+        }
       } else if (expr is DatatypeValue) {
         DatatypeValue dtv = (DatatypeValue)expr;
         for (int i = 0; i < dtv.Ctor.Formals.Count; i++) {
@@ -6206,6 +6292,11 @@ namespace Microsoft.Dafny {
 
     public string FunctionHandle(Function f) {
       Contract.Requires(f != null);
+      bool isAlloc = true;
+      Attributes.ContainsBool(f.Attributes, "allocated", ref isAlloc);
+      if (!isAlloc && FunctionIsAllocAxioms) {
+        throw new Exception("cannot use " + f.Name + " as -> type, because it is declared {:allocated false}");
+      }
       string name;
       if (functionHandles.TryGetValue(f, out name)) {
         Contract.Assert(name != null);
@@ -6590,6 +6681,8 @@ namespace Microsoft.Dafny {
                   ==>
                     (everything in reads set of f(bx0) is allocated in h)
             ));
+
+          Under /allocated, this axiom is replaced by a variant of the allocatedness consequence axiom below.
         */
         {
           var bvarsOuter = new List<Bpl.Variable>();
@@ -6615,13 +6708,15 @@ namespace Microsoft.Dafny {
           var rAlloc = IsAlloced(tok, h, r);
           var isAllocReads = BplForall(bvarsR, BplTrigger(rInReads), BplImp(BplAnd(rNonNull, rInReads), rAlloc));
 
-          sink.AddTopLevelDeclaration(new Axiom(tok,
-            BplForall(bvarsOuter, BplTrigger(isAlloc),
-              BplImp(goodHeap,
-                BplIff(isAlloc,
-                  BplForall(bvarsInner,
-                    new Bpl.Trigger(tok, true, new List<Bpl.Expr> { applied }, BplTrigger(reads)),
-                    BplImp(BplAnd(isAllocBoxes, pre), isAllocReads)))))));
+          if (AlwaysUseHeap) {
+            sink.AddTopLevelDeclaration(new Axiom(tok,
+              BplForall(bvarsOuter, BplTrigger(isAlloc),
+                BplImp(goodHeap,
+                  BplIff(isAlloc,
+                    BplForall(bvarsInner,
+                      new Bpl.Trigger(tok, true, new List<Bpl.Expr> { applied }, BplTrigger(reads)),
+                      BplImp(BplAnd(isAllocBoxes, pre), isAllocReads)))))));
+          }
         }
         /*  This is the allocatedness consequence axiom of arrow types:
           axiom (forall f: HandleType, t0: Ty, t1: Ty, h: Heap ::
@@ -6652,11 +6747,33 @@ namespace Microsoft.Dafny {
           var applied = FunctionCall(tok, Apply(ad.Arity), predef.BoxType, Concat(types, Cons(f, Cons<Bpl.Expr>(h, boxes))));
           var applied_isAlloc = MkIsAlloc(applied, types[ad.Arity], h, true);
 
-          sink.AddTopLevelDeclaration(new Axiom(tok,
-            BplForall(bvarsOuter, BplTrigger(isAlloc),
-              BplImp(BplAnd(goodHeap, isAlloc),
-                BplForall(bvarsInner, BplTrigger(applied),
-                  BplImp(BplAnd(isAllocBoxes, pre), applied_isAlloc))))));
+          var post = BplForall(bvarsInner, BplTrigger(applied), BplImp(BplAnd(isAllocBoxes, pre), applied_isAlloc));
+          if (FunctionIsAllocAxioms) {
+            sink.AddTopLevelDeclaration(new Axiom(tok,
+              BplForall(bvarsOuter, BplTrigger(isAlloc),
+                BplImp(goodHeap, BplImp(isAlloc, post)))));
+          }
+
+          if (!AlwaysUseHeap && FunctionIsAllocAxioms) {
+            // Same axiom in the other direction, but precondition needs to use r[heap, bx0]
+            // instead of Requires(...), which means we have to quantify over different variables.
+            bvarsOuter = bvarsOuter.Skip(1).ToList(); // we don't need f
+            var fh = BplBoundVar("fh", apply_ty, bvarsOuter);
+            var r = BplBoundVar("r", requires_ty, bvarsOuter);
+            var rd = BplBoundVar("rd", reads_ty, bvarsOuter);
+            var handleargs = new List<Expr> { fh, r, rd };
+            var fHandle = FunctionCall(tok, Handle(arity), predef.HandleType, handleargs);
+
+            isAlloc = MkIsAlloc(fHandle, ClassTyCon(ad, types), h);
+            pre = new Bpl.NAryExpr(tok, new Bpl.MapSelect(tok, arity + 1),
+              Cons(new Bpl.IdentifierExpr(tok, "r", requires_ty), Cons(h, boxes)));
+            applied = FunctionCall(tok, Apply(ad.Arity), predef.BoxType, Concat(types, Cons(fHandle, Cons<Bpl.Expr>(h, boxes))));
+            applied_isAlloc = MkIsAlloc(applied, types[ad.Arity], h, true);
+            post = BplForall(bvarsInner, BplTrigger(applied), BplImp(BplAnd(isAllocBoxes, pre), applied_isAlloc));
+            sink.AddTopLevelDeclaration(new Axiom(tok,
+              BplForall(bvarsOuter, BplTrigger(isAlloc),
+                BplImp(goodHeap, BplImp(post, isAlloc)))));
+          }
         }
       }
     }
@@ -6960,7 +7077,7 @@ namespace Microsoft.Dafny {
 
       currentModule = m.EnclosingClass.Module;
       codeContext = m;
-      isAllocContext = new IsAllocContext((m is Lemma ? LemmasUseHeap : MethodsUseHeap) ? ISALLOC : NOALLOC);
+      isAllocContext = new IsAllocContext((m is Lemma ? LemmasUseHeap : MethodsUseHeap) ? ISALLOC : NOALLOC, m.IsGhost, false);
       foreach (var p in m.Ins.Concat(m.Outs)) {
         isAllocContext.AddFormal(p);
       }
@@ -7146,7 +7263,7 @@ namespace Microsoft.Dafny {
       Method m = methodCheck.Refined;
       currentModule = m.EnclosingClass.Module;
       codeContext = m;
-      isAllocContext = new IsAllocContext((m is Lemma ? LemmasUseHeap : MethodsUseHeap) ? ISALLOC : NOALLOC);
+      isAllocContext = new IsAllocContext((m is Lemma ? LemmasUseHeap : MethodsUseHeap) ? ISALLOC : NOALLOC, m.IsGhost, false);
       foreach (var p in m.Ins.Concat(m.Outs)) {
         isAllocContext.AddFormal(p);
       }
@@ -7367,7 +7484,7 @@ namespace Microsoft.Dafny {
       List<Variable> implInParams = Bpl.Formal.StripWhereClauses(proc.InParams);
       List<Variable> locals = new List<Variable>();
       Bpl.StmtListBuilder builder = new Bpl.StmtListBuilder();
-      isAllocContext = new IsAllocContext(NOALLOC);
+      isAllocContext = new IsAllocContext(NOALLOC, true, true);
 
       Bpl.FunctionCall funcOriginal = new Bpl.FunctionCall(new Bpl.IdentifierExpr(f.tok, f.FullSanitizedName, TrType(f.ResultType)));
       Bpl.FunctionCall funcRefining = new Bpl.FunctionCall(new Bpl.IdentifierExpr(functionCheck.Refining.tok, functionCheck.Refining.FullSanitizedName, TrType(f.ResultType)));
@@ -9637,7 +9754,7 @@ namespace Microsoft.Dafny {
       Expression receiver = bReceiver == null ? dafnyReceiver : new BoogieWrapper(bReceiver, dafnyReceiver.Type);
       if (!method.IsStatic) {
         if (bReceiver == null && !(dafnyReceiver is ThisExpr)) {
-          CheckNonNull(dafnyReceiver.tok, dafnyReceiver, builder, etran, null);
+          CheckNonNull(dafnyReceiver.tok, dafnyReceiver, builder, etran, null, !isAllocContext.inFunction);
         }
         ins.Add(etran.TrExpr(receiver));
       }
@@ -11447,35 +11564,99 @@ namespace Microsoft.Dafny {
     internal class IsAllocContext
     {
       internal IsAllocType defaultAlloc;
+      internal bool allVarsGhost;
+      internal bool inFunction;
       internal Dictionary<IVariable, IsAllocType> locals; // contains local variables from statements (not variables declared by expressions)
+      internal bool provingFunctionIsAllocLemma = false;
 
-      internal IsAllocContext(IsAllocType defaultAlloc) {
+      internal IsAllocContext(IsAllocType defaultAlloc, bool allVarsGhost, bool inFunction) {
         this.defaultAlloc = defaultAlloc;
+        this.allVarsGhost = allVarsGhost;
+        this.inFunction = inFunction;
         this.locals = new Dictionary<IVariable, IsAllocType>();
       }
 
       internal static IsAllocType MethodFormalAlloc(Method m, Formal formal) {
         bool mAlloc = (m is Lemma) ? LemmasUseHeap : MethodsUseHeap;
-        bool isAlloc = mAlloc || (NonGhostsUseHeap && !formal.IsGhost);
+        bool isGhost = m.IsGhost || formal.IsGhost;
+        bool isAlloc = mAlloc || (NonGhostsUseHeap && !isGhost);
         Attributes.ContainsBool(formal.Attributes, "allocated", ref isAlloc);
         return isAlloc ? ISALLOC : NOALLOC;
       }
 
       internal void AddFormal(Formal formal) {
-        bool isAlloc = (defaultAlloc == ISALLOC) || (NonGhostsUseHeap && !formal.IsGhost);
+        bool isGhost = allVarsGhost || formal.IsGhost;
+        bool isAlloc = (defaultAlloc == ISALLOC) || (NonGhostsUseHeap && !isGhost);
         Attributes.ContainsBool(formal.Attributes, "allocated", ref isAlloc);
         locals.Add(formal, isAlloc ? ISALLOC : NOALLOC);
       }
 
       internal void AddLocalVariable(LocalVariable local) {
-        bool isAlloc = (defaultAlloc == ISALLOC) || (NonGhostsUseHeap && !local.IsGhost);
+        bool isGhost = allVarsGhost || local.IsGhost;
+        bool isAlloc = (defaultAlloc == ISALLOC) || (NonGhostsUseHeap && !isGhost);
         Attributes.ContainsBool(local.Attributes, "allocated", ref isAlloc);
         locals.Add(local, isAlloc ? ISALLOC : NOALLOC);
       }
 
       internal void AddBoundVariable(BoundVar var) {
-        bool isAlloc = (defaultAlloc == ISALLOC) || (NonGhostsUseHeap && !var.IsGhost);
+        bool isGhost = allVarsGhost || var.IsGhost;
+        bool isAlloc = (defaultAlloc == ISALLOC) || (NonGhostsUseHeap && !isGhost);
         locals.Add(var, isAlloc ? ISALLOC : NOALLOC);
+      }
+
+      // Returns true if all values of type "type" are considered always allocated;
+      // that is, IsAlloc always should be true for "type" regardless of the heap state.
+      // This allows the translator to generate "true" in place of "IsAlloc(...)".
+      internal bool TypeIsAlwaysAllocated(Type type) {
+        return TypeIsAlwaysAllocated(type, new HashSet<DatatypeDecl>(), null);
+      }
+
+      bool TypeIsAlwaysAllocated(Type type, HashSet<DatatypeDecl> visitedDatatypes, List<TypeParameter> boundTVars) {
+        var normType = type.NormalizeExpand();
+        if (normType.IsBoolType || normType.IsCharType || normType.IsNumericBased()) {
+          return true;
+        }
+        Func<Type,bool> rec = t => TypeIsAlwaysAllocated(t, visitedDatatypes, boundTVars);
+        if (normType is SeqType) {
+          return rec(((SeqType)normType).Arg);
+        }
+        if (normType is SetType) {
+          return rec(((SetType)normType).Arg);
+        }
+        if (normType is MultiSetType) {
+          return rec(((MultiSetType)normType).Arg);
+        }
+        MapType mapType = normType as MapType;
+        if (mapType != null) {
+          return rec(mapType.Domain) && rec(mapType.Range);
+        }
+        UserDefinedType udt = normType as UserDefinedType;
+        if (udt != null) {
+          if (!udt.TypeArgs.TrueForAll(t => rec(t))) {
+            return false;
+          }
+          var tParam = udt.ResolvedParam;
+          if (tParam != null && boundTVars != null && boundTVars.Contains(tParam)) {
+            return true;
+          }
+          var dataDecl = udt.ResolvedClass as DatatypeDecl;
+          if (dataDecl != null) {
+            if (visitedDatatypes.Contains(dataDecl)) {
+              return true;
+            }
+            visitedDatatypes.Add(dataDecl);
+            var tArgs = dataDecl.TypeArgs;
+            foreach (var ctor in dataDecl.Ctors) {
+              foreach (var formal in ctor.Formals) {
+                if (!TypeIsAlwaysAllocated(formal.Type, visitedDatatypes, tArgs)) {
+                  return false;
+                }
+              }
+            }
+            return true;
+          }
+        }
+        return false;
       }
     }
 
@@ -14596,9 +14777,11 @@ namespace Microsoft.Dafny {
     }
 
     public static bool NonGhostsUseHeap { get { return DafnyOptions.O.Allocated >= 1; } }
-    public static bool MethodsUseHeap { get { return DafnyOptions.O.Allocated >= 2; } }
-    public static bool LemmasUseHeap { get { return DafnyOptions.O.Allocated >= 3; } }
-    public static bool AlwaysUseHeap { get { return DafnyOptions.O.Allocated >= 4; } }
+    public static bool ReadsAreAllocated { get { return DafnyOptions.O.Allocated >= 1; } }
+    public static bool FunctionIsAllocAxioms { get { return DafnyOptions.O.Allocated >= 2; } }
+    public static bool MethodsUseHeap { get { return DafnyOptions.O.Allocated >= 3; } }
+    public static bool LemmasUseHeap { get { return DafnyOptions.O.Allocated >= 4; } }
+    public static bool AlwaysUseHeap { get { return DafnyOptions.O.Allocated >= 5; } }
 
     public static bool UsesHeap(Expression expr) {
       UsesHeapVisitor visitor = new UsesHeapVisitor();
