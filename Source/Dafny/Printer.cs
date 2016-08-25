@@ -844,13 +844,19 @@ namespace Microsoft.Dafny {
       if (stmt is PredicateStmt) {
         if (printMode == DafnyOptions.PrintModes.NoGhost) { return; }
         Expression expr = ((PredicateStmt)stmt).Expr;
-        wr.Write(stmt is AssertStmt ? "assert" : "assume");
+        var assertStmt = stmt as AssertStmt;
+        wr.Write(assertStmt != null ? "assert" : "assume");
         if (stmt.Attributes != null) {
           PrintAttributes(stmt.Attributes);
         }
         wr.Write(" ");
         PrintExpression(expr, true);
-        wr.Write(";");
+        if (assertStmt != null && assertStmt.Proof != null) {
+          wr.Write(" by ");
+          PrintStatement(assertStmt.Proof, indent);
+        } else {
+          wr.Write(";");
+        }
 
       } else if (stmt is PrintStmt) {
         PrintStmt s = (PrintStmt)stmt;
@@ -908,10 +914,17 @@ namespace Microsoft.Dafny {
 
       } else if (stmt is AlternativeStmt) {
         var s = (AlternativeStmt)stmt;
-        wr.WriteLine("if {");
-        PrintAlternatives(indent, s.Alternatives);
-        Indent(indent);
-        wr.Write("}");
+        if (s.UsesOptionalBraces) {
+          wr.Write("if {");
+        } else {
+          wr.Write("if");
+        }
+        PrintAlternatives(indent + (s.UsesOptionalBraces ? IndentAmount : 0), s.Alternatives);
+        if (s.UsesOptionalBraces) {
+          wr.WriteLine();
+          Indent(indent);
+          wr.Write("}");
+        }
 
       } else if (stmt is WhileStmt) {
         WhileStmt s = (WhileStmt)stmt;
@@ -919,15 +932,27 @@ namespace Microsoft.Dafny {
 
       } else if (stmt is AlternativeLoopStmt) {
         var s = (AlternativeLoopStmt)stmt;
-        wr.WriteLine("while");
-        PrintSpec("invariant", s.Invariants, indent + IndentAmount);
-        PrintDecreasesSpec(s.Decreases, indent + IndentAmount);
+        wr.Write("while");
+        if (s.Invariants.Count != 0) {
+          wr.WriteLine();
+          PrintSpec("invariant", s.Invariants, indent + IndentAmount, false);
+        }
+        if (s.Decreases.Expressions != null && s.Decreases.Expressions.Count != 0) {
+          wr.WriteLine();
+          PrintDecreasesSpec(s.Decreases, indent + IndentAmount, false);
+        }
 
-        Indent(indent);
-        wr.WriteLine("{");
-        PrintAlternatives(indent, s.Alternatives);
-        Indent(indent);
-        wr.Write("}");
+        if (s.UsesOptionalBraces) {
+          wr.WriteLine();
+          Indent(indent);
+          wr.Write("{");
+        }
+        PrintAlternatives(indent + (s.UsesOptionalBraces ? IndentAmount : 0), s.Alternatives);
+        if (s.UsesOptionalBraces) {
+          wr.WriteLine();
+          Indent(indent);
+          wr.Write("}");
+        }
 
       } else if (stmt is ForallStmt) {
         var s = (ForallStmt)stmt;
@@ -1196,9 +1221,9 @@ namespace Microsoft.Dafny {
     }
 
     void PrintAlternatives(int indent, List<GuardedAlternative> alternatives) {
-      int caseInd = indent + IndentAmount;
       foreach (var alternative in alternatives) {
-        Indent(caseInd);
+        wr.WriteLine();
+        Indent(indent);
         wr.Write("case ");
         if (alternative.IsExistentialGuard) {
           var exists = (ExistsExpr)alternative.Guard;
@@ -1206,11 +1231,11 @@ namespace Microsoft.Dafny {
         } else {
           PrintExpression(alternative.Guard, false);
         }
-        wr.WriteLine(" =>");
+        wr.Write(" =>");
         foreach (Statement s in alternative.Body) {
-          Indent(caseInd + IndentAmount);
-          PrintStatement(s, caseInd + IndentAmount);
           wr.WriteLine();
+          Indent(indent + IndentAmount);
+          PrintStatement(s, indent + IndentAmount);
         }
       }
     }
@@ -1985,9 +2010,11 @@ namespace Microsoft.Dafny {
           wr.Write(" requires ");
           PrintExpression(e.Range, false);
         }
+        var readsPrefix = " reads ";
         foreach (var read in e.Reads) {
-          wr.Write(" reads ");
+          wr.Write(readsPrefix);
           PrintExpression(read.E, false);
+          readsPrefix = ", ";
         }
         wr.Write(e.OneShot ? " -> " : " => ");
         PrintExpression(e.Body, isFollowedBySemicolon);

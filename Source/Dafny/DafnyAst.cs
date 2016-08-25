@@ -4522,11 +4522,20 @@ namespace Microsoft.Dafny {
   }
 
   public class AssertStmt : PredicateStmt {
-    public AssertStmt(IToken tok, IToken endTok, Expression expr, Attributes attrs)
+    public readonly BlockStmt Proof;
+    public AssertStmt(IToken tok, IToken endTok, Expression expr, BlockStmt/*?*/ proof, Attributes attrs)
       : base(tok, endTok, expr, attrs) {
       Contract.Requires(tok != null);
       Contract.Requires(endTok != null);
       Contract.Requires(expr != null);
+      Proof = proof;
+    }
+    public override IEnumerable<Statement> SubStatements {
+      get {
+        if (Proof != null) {
+          yield return Proof;
+        }
+      }
     }
   }
 
@@ -5306,17 +5315,19 @@ namespace Microsoft.Dafny {
 
   public class AlternativeStmt : Statement
   {
+    public readonly bool UsesOptionalBraces;
     public readonly List<GuardedAlternative> Alternatives;
     [ContractInvariantMethod]
     void ObjectInvariant() {
       Contract.Invariant(Alternatives != null);
     }
-    public AlternativeStmt(IToken tok, IToken endTok, List<GuardedAlternative> alternatives)
+    public AlternativeStmt(IToken tok, IToken endTok, List<GuardedAlternative> alternatives, bool usesOptionalBraces)
       : base(tok, endTok) {
       Contract.Requires(tok != null);
       Contract.Requires(endTok != null);
       Contract.Requires(alternatives != null);
       this.Alternatives = alternatives;
+      this.UsesOptionalBraces = usesOptionalBraces;
     }
     public override IEnumerable<Statement> SubStatements {
       get {
@@ -5439,6 +5450,7 @@ namespace Microsoft.Dafny {
 
   public class AlternativeLoopStmt : LoopStmt
   {
+    public readonly bool UsesOptionalBraces;
     public readonly List<GuardedAlternative> Alternatives;
     [ContractInvariantMethod]
     void ObjectInvariant() {
@@ -5446,12 +5458,13 @@ namespace Microsoft.Dafny {
     }
     public AlternativeLoopStmt(IToken tok, IToken endTok,
                                List<MaybeFreeExpression> invariants, Specification<Expression> decreases, Specification<FrameExpression> mod,
-                               List<GuardedAlternative> alternatives)
+                               List<GuardedAlternative> alternatives, bool usesOptionalBraces)
       : base(tok, endTok, invariants, decreases, mod) {
       Contract.Requires(tok != null);
       Contract.Requires(endTok != null);
       Contract.Requires(alternatives != null);
       this.Alternatives = alternatives;
+      this.UsesOptionalBraces = usesOptionalBraces;
     }
     public override IEnumerable<Statement> SubStatements {
       get {
