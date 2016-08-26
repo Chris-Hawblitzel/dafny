@@ -46,7 +46,7 @@ namespace Microsoft.Dafny
     public bool UnicodeOutput = false;
     public bool DisallowSoundnessCheating = false;
     public bool Dafnycc = false;
-    public int Induction = 3;
+    public int Induction = 1;
     public int InductionHeuristic = 6;
     public string DafnyPrelude = null;
     public string DafnyPrintFile = null;
@@ -67,13 +67,14 @@ namespace Microsoft.Dafny
     public bool AllowGlobals = false;
     public bool CountVerificationErrors = true;
     public bool Optimize = false;
-    public bool AutoTriggers = true;    
+    public bool AutoTriggers = true;
     public bool RewriteFocalPredicates = true;
     public bool PrintTooltips = false;
     public bool PrintStats = false;
     public bool PrintFunctionCallGraph = false;
     public bool WarnShadowing = false;
     public int DeprecationNoise = 1;
+    public int Allocated = 1;
     public bool IronDafny = 
 #if ENABLE_IRONDAFNY 
       true
@@ -233,6 +234,20 @@ namespace Microsoft.Dafny
           return true;
         }
 
+        case "allocatedAll": {
+            Allocated = 5;
+            return true;
+        }
+
+        case "allocated": {
+            ps.GetNumericArgument(ref Allocated, 6);
+            if (Allocated == 3 || Allocated == 4) {
+                Allocated = 1;
+                throw new Exception("/allocated:3 and /allocated:4 are not yet implemented");
+            }
+            return true;
+        }
+
         case "countVerificationErrors": {
           int countErrors = 1; // defaults to reporting verification errors
           if (ps.GetNumericArgument(ref countErrors, 2)) {
@@ -380,10 +395,10 @@ namespace Microsoft.Dafny
                 1 - treat all assumptions as asserts, and drop free.
   /induction:<n>
                 0 - never do induction, not even when attributes request it
-                1 - only apply induction when attributes request it
+                1 (default) - only apply induction when attributes request it
                 2 - apply induction as requested (by attributes) and also
                     for heuristically chosen quantifiers
-                3 (default) - apply induction as requested, and for
+                3 - apply induction as requested, and for
                     heuristically chosen quantifiers and lemmas
   /inductionHeuristic:<n>
                 0 - least discriminating induction heuristic (that is, lean
@@ -430,6 +445,34 @@ namespace Microsoft.Dafny
                 0 - don't give any warnings about deprecated features
                 1 (default) - show warnings about deprecated features
                 2 - also point out where there's new simpler syntax
+  /allocatedAll Abbreviation for /allocated:5 (see below)
+  /allocated:<n>
+                Specify defaults for where Dafny should assert and assume
+                allocated(x) for various parameters x, local variables x,
+                bound variables x, etc.  Warning: this option should be
+                chosen consistently across an entire project; it would
+                be unsound to use different defaults for different files
+                or modules within a project.
+                0 - Nowhere (never assume/assert allocated(x) by default).
+                1 (current default) - Assume allocated(x) only for non-ghost
+                    variables and fields
+                    (these assumptions are free, since non-ghost variables
+                    always contain allocated values at run-time), and
+                    for objects listed in function reads clauses.
+                2 - Like /allocated:1, but also try to
+                    prove that function outputs are allocated whenever
+                    function inputs are allocated.
+                3 (proposed future default) - Like /allocated:2, but
+                    also assert/assume allocated(x) for all fields
+                    and all local variables in methods (not lemmas), except
+                    inside forall blocks.
+                    NOT YET IMPLEMENTED
+                4 - Like /allocated:3, but also assert/assume allocated(x) for
+                    lemmas.
+                    NOT YET IMPLEMENTED
+                5 - Assert/assume allocated(x) on all variables, even bound
+                    variables in quantifiers.  This is the original Dafny
+                    behavior.
   /ironDafny    Enable experimental features needed to support Ironclad/Ironfleet. Use of
                 these features may cause your code to become incompatible with future
                 releases of Dafny.

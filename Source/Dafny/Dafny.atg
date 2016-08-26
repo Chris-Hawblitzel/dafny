@@ -1371,15 +1371,16 @@ Formals<.bool incoming, bool allowGhostKeyword, bool allowNewKeyword, List<Forma
 = (. Contract.Requires(cce.NonNullElements(formals));
      IToken id;
      Type ty;
+     Attributes attrs = null;
      bool isGhost;
      bool isOld;
   .)
   "("
   [
-    GIdentType<allowGhostKeyword, allowNewKeyword, out id, out ty, out isGhost, out isOld>
-                 (. formals.Add(new Formal(id, id.val, ty, incoming, isGhost, isOld)); .)
-    { "," GIdentType<allowGhostKeyword, allowNewKeyword, out id, out ty, out isGhost, out isOld>
-                 (. formals.Add(new Formal(id, id.val, ty, incoming, isGhost, isOld)); .)
+    { Attribute<ref attrs> } GIdentType<allowGhostKeyword, allowNewKeyword, out id, out ty, out isGhost, out isOld>
+                 (. formals.Add(new Formal(id, id.val, ty, incoming, isGhost, isOld, attrs)); .)
+    { "," { Attribute<ref attrs> } GIdentType<allowGhostKeyword, allowNewKeyword, out id, out ty, out isGhost, out isOld>
+                 (. formals.Add(new Formal(id, id.val, ty, incoming, isGhost, isOld, attrs)); .)
     }
   ]
   ")"
@@ -2823,6 +2824,8 @@ ConstAtomExpression<out Expression e, bool allowSemi, bool allowLambda>
   | "this"                                     (. e = new ThisExpr(t); .)
   | "fresh"                                    (. x = t; .)
     "(" Expression<out e, true, true> ")"      (. e = new UnaryOpExpr(x, UnaryOpExpr.Opcode.Fresh, e); .)
+  | "allocated"                                (. x = t; .)
+    "(" Expression<out e, true, true> ")"      (. e = new UnaryOpExpr(x, UnaryOpExpr.Opcode.Allocated, e); .)
   | "old"                                      (. x = t; .)
     "(" Expression<out e, true, true> ")"      (. e = new OldExpr(x, e); .)
   | "|"                                        (. x = t; .)
@@ -3367,10 +3370,11 @@ Expressions<.List<Expression> args.>
 Attribute<ref Attributes attrs>
 = (. IToken openBrace, colon, x, closeBrace;
      var args = new List<Expression>();
+     x = null;
   .)
   "{"                         (. openBrace = t; .)
   ":"                         (. colon = t; .)
-  NoUSIdent<out x>
+  (NoUSIdent<out x> | "allocated" (. x = t; .) )
   [ Expressions<args> ]
   "}"                         (. closeBrace = t; .)
   (. attrs = new UserSuppliedAttributes(x, openBrace, colon, closeBrace, args, attrs); .)

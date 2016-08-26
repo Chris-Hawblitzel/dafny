@@ -1,5 +1,5 @@
 // XFAIL: *
-// RUN: %dafny /compile:0 /dprint:"%t.dprint" /vcsMaxKeepGoingSplits:10 /autoTriggers:0 "%s" > "%t"
+// RUN: %dafny /compile:0 /dprint:"%t.dprint" "%s" > "%t"
 // RUN: %diff "%s.expect" "%t"
 
 class BreadthFirstSearch<Vertex(==)>
@@ -233,6 +233,7 @@ class BreadthFirstSearch<Vertex(==)>
 }
 
 function domain<T, U>(m: map<T, U>): set<T>
+  ensures forall x :: x in domain(m) <==> x in m
 {
   set t | t in m
 }

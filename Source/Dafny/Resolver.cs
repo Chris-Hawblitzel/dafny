@@ -9189,6 +9189,11 @@ namespace Microsoft.Dafny
             AddXConstraint(expr.tok, "Freshable", e.E.Type, "the argument of a fresh expression must denote an object or a collection of objects (instead got {0})");
             expr.Type = Type.Bool;
             break;
+          case UnaryOpExpr.Opcode.Allocated:
+            // the type of e.E must be either an object or a collection of objects
+            AddXConstraint(expr.tok, "Freshable", e.E.Type, "the argument of an allocated expression must denote an object or a collection of objects (instead got {0})");
+            expr.Type = Type.Bool;
+            break;
           default:
             Contract.Assert(false); throw new cce.UnreachableException();  // unexpected unary operator
         }
@@ -10270,7 +10275,7 @@ namespace Microsoft.Dafny
           receiver = new ImplicitThisExpr(expr.tok);
           receiver.Type = GetThisType(expr.tok, (ClassDecl)member.EnclosingClass);  // resolve here
         }
-        r = ResolveExprDotCall(expr.tok, receiver, member, expr.OptTypeArguments, opts.codeContext, allowMethodCall);
+        r = ResolveExprDotCall(expr.tok, receiver, member, expr.OptTypeArguments, opts.codeContext, allowMethodCall, args != null);
       } else if (isLastNameSegment && moduleInfo.Ctors.TryGetValue(expr.Name, out pair)) {
         // ----- 2. datatype constructor
         if (pair.Item2) {
@@ -10310,7 +10315,7 @@ namespace Microsoft.Dafny
           reporter.Error(MessageSource.Resolver, expr.tok, "The name {0} ambiguously refers to a static member in one of the modules {1} (try qualifying the member name with the module name)", expr.Name, ambiguousMember.ModuleNames());
         } else {
           var receiver = new StaticReceiverExpr(expr.tok, (ClassDecl)member.EnclosingClass, true);
-          r = ResolveExprDotCall(expr.tok, receiver, member, expr.OptTypeArguments, opts.codeContext, allowMethodCall);
+          r = ResolveExprDotCall(expr.tok, receiver, member, expr.OptTypeArguments, opts.codeContext, allowMethodCall, args != null);
         }
 
       } else {
@@ -10539,7 +10544,7 @@ namespace Microsoft.Dafny
             reporter.Error(MessageSource.Resolver, expr.tok, "The name {0} ambiguously refers to a static member in one of the modules {1} (try qualifying the member name with the module name)", expr.SuffixName, ambiguousMember.ModuleNames());
           } else {
             var receiver = new StaticReceiverExpr(expr.tok, (ClassDecl)member.EnclosingClass, true);
-            r = ResolveExprDotCall(expr.tok, receiver, member, expr.OptTypeArguments, opts.codeContext, allowMethodCall);
+            r = ResolveExprDotCall(expr.tok, receiver, member, expr.OptTypeArguments, opts.codeContext, allowMethodCall, args != null);
           }
         } else {
           reporter.Error(MessageSource.Resolver, expr.tok, "unresolved identifier: {0}", expr.SuffixName);
@@ -10565,7 +10570,7 @@ namespace Microsoft.Dafny
               // nevertheless, continue creating an expression that approximates a correct one
             }
             var receiver = new StaticReceiverExpr(expr.tok, (UserDefinedType)ty.NormalizeExpand(), (ClassDecl)member.EnclosingClass, false);
-            r = ResolveExprDotCall(expr.tok, receiver, member, expr.OptTypeArguments, opts.codeContext, allowMethodCall);
+            r = ResolveExprDotCall(expr.tok, receiver, member, expr.OptTypeArguments, opts.codeContext, allowMethodCall, args != null);
           }
         } else if (ty.IsDatatype) {
           // ----- LHS is a datatype
@@ -10602,7 +10607,7 @@ namespace Microsoft.Dafny
             Contract.Assert(nptype.IsRefType);  // only reference types have static methods
             receiver = new StaticReceiverExpr(expr.tok, (UserDefinedType)nptype, (ClassDecl)member.EnclosingClass, false);
           }
-          r = ResolveExprDotCall(expr.tok, receiver, member, expr.OptTypeArguments, opts.codeContext, allowMethodCall);
+          r = ResolveExprDotCall(expr.tok, receiver, member, expr.OptTypeArguments, opts.codeContext, allowMethodCall, args != null);
         }
       }
 
@@ -10613,6 +10618,7 @@ namespace Microsoft.Dafny
         expr.ResolvedExpression = r;
         expr.Type = r.Type;
       }
+
       return rWithArgs;
     }
 
@@ -10712,7 +10718,7 @@ namespace Microsoft.Dafny
       return null;
     }
 
-    Expression ResolveExprDotCall(IToken tok, Expression receiver, MemberDecl member, List<Type> optTypeArguments, ICodeContext caller, bool allowMethodCall) {
+    Expression ResolveExprDotCall(IToken tok, Expression receiver, MemberDecl member, List<Type> optTypeArguments, ICodeContext caller, bool allowMethodCall, bool hasArgs) {
       Contract.Requires(tok != null);
       Contract.Requires(receiver != null);
       Contract.Requires(receiver.WasResolved());
@@ -10742,6 +10748,13 @@ namespace Microsoft.Dafny
         rr.Type = SubstType(((Field)member).Type, subst);
       } else if (member is Function) {
         var fn = (Function)member;
+
+        bool isAlloc = true;
+        Attributes.ContainsBool(fn.Attributes, "allocated", ref isAlloc);
+        if (!hasArgs && !isAlloc) {
+          reporter.Error(MessageSource.Resolver, tok, "cannot use " + fn.Name + " as -> type, because it is declared {:allocated false}");
+        }
+
         int suppliedTypeArguments = optTypeArguments == null ? 0 : optTypeArguments.Count;
         if (optTypeArguments != null && suppliedTypeArguments != fn.TypeArgs.Count) {
           reporter.Error(MessageSource.Resolver, tok, "function '{0}' expects {1} type arguments (got {2})", member.Name, fn.TypeArgs.Count, suppliedTypeArguments);
@@ -11048,6 +11061,10 @@ namespace Microsoft.Dafny
         var e = (UnaryOpExpr)expr;
         if (e.Op == UnaryOpExpr.Opcode.Fresh) {
           reporter.Error(MessageSource.Resolver, expr, "fresh expressions are allowed only in specification and ghost contexts");
+          return;
+        }
+        if (e.Op == UnaryOpExpr.Opcode.Allocated) {
+          reporter.Error(MessageSource.Resolver, expr, "allocated expressions are allowed only in specification and ghost contexts");
           return;
         }
 
@@ -12029,6 +12046,9 @@ namespace Microsoft.Dafny
         var e = (UnaryExpr)expr;
         var unaryOpExpr = e as UnaryOpExpr;
         if (unaryOpExpr != null && unaryOpExpr.Op == UnaryOpExpr.Opcode.Fresh) {
+          return true;
+        }
+        if (unaryOpExpr != null && unaryOpExpr.Op == UnaryOpExpr.Opcode.Allocated) {
           return true;
         }
         return UsesSpecFeatures(e.E);

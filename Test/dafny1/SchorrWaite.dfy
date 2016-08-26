@@ -1,4 +1,4 @@
-// RUN: %dafny /compile:0 /dprint:"%t.dprint" /autoTriggers:0 "%s" > "%t"
+// RUN: %dafny /compile:0 /dprint:"%t.dprint" "%s" > "%t"
 // RUN: %diff "%s.expect" "%t"
 
 // Rustan Leino
@@ -106,7 +106,7 @@ class Main {
       // stackNodes has no duplicates:
       invariant forall i, j :: 0 <= i < j < |stackNodes| ==>
                   stackNodes[i] != stackNodes[j]
-      invariant forall n :: n in stackNodes ==> n in S
+      invariant forall i :: 0 <= i < |stackNodes| ==> stackNodes[i] in S
       invariant forall n :: n in stackNodes || n == t ==>
                   n.marked &&
                   0 <= n.childrenVisited <= |n.children| &&
