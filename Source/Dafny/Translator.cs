@@ -919,7 +919,7 @@ namespace Microsoft.Dafny {
           var heap = new Bpl.BoundVariable(dd.tok, new Bpl.TypedIdent(dd.tok, predef.HeapVarName, predef.HeapType));
           //TRIG (exists $Heap: Heap :: $IsGoodHeap($Heap) && LitInt(0) <= $o#0 && $o#0 < 100)
           var ex = new Bpl.ExistsExpr(dd.tok, new List<Variable> { heap }, BplAnd(FunctionCall(dd.tok, BuiltinFunction.IsGoodHeap, null, etran.HeapExpr), constraint));  // LL_TRIGGER
-          rhs = BplAnd(rhs, ex);
+          rhs = BplAnd(rhs, AlwaysUseHeap || UsesHeap(dd.Constraint) ? ex : constraint);
         }
         body = BplIff(is_o, rhs);
       }
