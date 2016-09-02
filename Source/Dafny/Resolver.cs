@@ -1327,7 +1327,8 @@ namespace Microsoft.Dafny
                 MemberDecl extraMember;
                 var cloner = new Cloner();
                 var formals = new List<Formal>();
-                var k = new ImplicitFormal(m.tok, "_k", new NatType(), true, false);
+                var natType = new UserDefinedType(m.tok, "nat", (List<Type>)null);
+                var k = new ImplicitFormal(m.tok, "_k", natType, true, false);
                 formals.Add(k);
                 if (m is FixpointPredicate) {
                   var cop = (FixpointPredicate)m;
@@ -1659,7 +1660,9 @@ namespace Microsoft.Dafny
             if (!CheckTypeInference_Visitor.IsDetermined(dd.BaseType.NormalizeExpand())) {
               reporter.Error(MessageSource.Resolver, dd.tok, "newtype's base type is not fully determined; add an explicit type for '{0}'", dd.Var.Name);
             }
-            CheckTypeInference(dd.Constraint, dd);
+            if (reporter.Count(ErrorLevel.Error) == prevErrorCount) {
+              CheckTypeInference(dd.Constraint, dd);
+            }
             scope.PopMarker();
           }
         } else if (d is SubsetTypeDecl) {
@@ -1678,7 +1681,9 @@ namespace Microsoft.Dafny
           if (!CheckTypeInference_Visitor.IsDetermined(dd.Rhs.NormalizeExpand())) {
             reporter.Error(MessageSource.Resolver, dd.tok, "subset type's base type is not fully determined; add an explicit type for '{0}'", dd.Var.Name);
           }
-          CheckTypeInference(dd.Constraint, dd);
+          if (reporter.Count(ErrorLevel.Error) == prevErrorCount) {
+            CheckTypeInference(dd.Constraint, dd);
+          }
           scope.PopMarker();
         }
       }
@@ -9249,9 +9254,7 @@ namespace Microsoft.Dafny
         var prevErrorCount = reporter.Count(ErrorLevel.Error);
         ResolveType(e.tok, e.ToType, opts.codeContext, new ResolveTypeOption(ResolveTypeOptionEnum.DontInfer), null);
         if (reporter.Count(ErrorLevel.Error) == prevErrorCount) {
-          if (e.ToType is NatType) {
-            reporter.Error(MessageSource.Resolver, expr, "type conversions to 'nat' are not supported; convert to 'int' instead");
-          } else if (e.ToType.IsNumericBased(Type.NumericPersuation.Int)) {
+          if (e.ToType.IsNumericBased(Type.NumericPersuation.Int)) {
             AddXConstraint(expr.tok, "NumericOrBitvector", e.E.Type, "type conversion to an int-based type is allowed only from numeric and bitvector types (got {0})");
           } else if (e.ToType.IsNumericBased(Type.NumericPersuation.Real)) {
             AddXConstraint(expr.tok, "NumericOrBitvector", e.E.Type, "type conversion to an real-based type is allowed only from numeric and bitvector types (got {0})");
@@ -9260,7 +9263,7 @@ namespace Microsoft.Dafny
           } else {
             reporter.Error(MessageSource.Resolver, expr, "type conversions are not supported to this type (got {0})", e.ToType);
           }
-          e.Type = e.ToType;
+          e.Type = e.ToType.StripSubsetConstraints();
         } else {
           e.Type = new InferredTypeProxy();
         }
@@ -11323,7 +11326,7 @@ namespace Microsoft.Dafny
     /// </summary>
     public static List<ComprehensionExpr.BoundedPool> DiscoverBestBounds_MultipleVars<VT>(List<VT> bvars, Expression expr, bool polarity, bool onlyFiniteBounds, out List<VT> missingBounds) where VT : IVariable {
       foreach (var bv in bvars) {
-        var c = GetImpliedTypeConstraint(bv, bv.Type, null);
+        var c = GetImpliedTypeConstraint(bv, bv.Type);
         expr = polarity ? Expression.CreateAnd(c, expr) : Expression.CreateImplies(c, expr);
       }
       List<ComprehensionExpr.BoundedPool> knownBounds = null;
@@ -11361,7 +11364,7 @@ namespace Microsoft.Dafny
     }
 
     public static List<ComprehensionExpr.BoundedPool> DiscoverAllBounds_SingleVar<VT>(VT v, Expression expr) where VT : IVariable {
-      expr = Expression.CreateAnd(GetImpliedTypeConstraint(v, v.Type, null), expr);
+      expr = Expression.CreateAnd(GetImpliedTypeConstraint(v, v.Type), expr);
       return DiscoverAllBounds_Aux_SingleVar(new List<VT> { v }, 0, expr, true, null);
     }
 
@@ -11479,29 +11482,30 @@ namespace Microsoft.Dafny
       return bounds;
     }
 
-    static Expression GetImpliedTypeConstraint(IVariable bv, Type ty, ErrorReporter reporter) {
-      Contract.Requires(bv != null);
+    public static Expression GetImpliedTypeConstraint(IVariable bv, Type ty) {
+      return GetImpliedTypeConstraint(Expression.CreateIdentExpr(bv), ty);
+    }
+    public static Expression GetImpliedTypeConstraint(Expression e, Type ty) {
+      Contract.Requires(e != null);
       Contract.Requires(ty != null);
       ty = ty.NormalizeExpandKeepConstraints();
       var udt = ty as UserDefinedType;
       if (udt != null) {
         if (udt.ResolvedClass is NewtypeDecl) {
           var dd = (NewtypeDecl)udt.ResolvedClass;
-          var c = GetImpliedTypeConstraint(bv, dd.BaseType, reporter);
+          var c = GetImpliedTypeConstraint(e, dd.BaseType);
           if (dd.Var != null) {
-            c = Expression.CreateAnd(c, new Translator(reporter).Substitute(dd.Constraint, dd.Var, Expression.CreateIdentExpr(bv)));
+            c = Expression.CreateAnd(c, new Translator(null).Substitute(dd.Constraint, dd.Var, e));
           }
           return c;
         } else if (udt.ResolvedClass is SubsetTypeDecl) {
           var dd = (SubsetTypeDecl)udt.ResolvedClass;
-          var c = GetImpliedTypeConstraint(bv, dd.RhsWithArgument(udt.TypeArgs), reporter);
-          c = Expression.CreateAnd(c, new Translator(reporter).Substitute(dd.Constraint, dd.Var, Expression.CreateIdentExpr(bv)));
+          var c = GetImpliedTypeConstraint(e, dd.RhsWithArgument(udt.TypeArgs));
+          c = Expression.CreateAnd(c, new Translator(null).Substitute(dd.Constraint, dd.Var, e));
           return c;
         }
-      } else if (ty is NatType) {
-        return Expression.CreateAtMost(Expression.CreateIntLiteral(bv.Tok, 0), Expression.CreateIdentExpr(bv));
       }
-      return Expression.CreateBoolLiteral(bv.Tok, true);
+      return Expression.CreateBoolLiteral(e.tok, true);
     }
 
     /// <summary>

@@ -102,8 +102,14 @@ namespace Microsoft.Dafny {
       // create type synonym 'string'
       var str = new TypeSynonymDecl(Token.NoToken, "string", new List<TypeParameter>(), SystemModule, new SeqType(new CharType()), null);
       SystemModule.TopLevelDecls.Add(str);
-      // create class 'object'
-      ObjectDecl = new ClassDecl(Token.NoToken, "object", SystemModule, new List<TypeParameter>(), new List<MemberDecl>(), DontCompile(), null);
+      // create subset type 'nat'
+      var bvNat = new BoundVar(Token.NoToken, "x", Type.Int);
+      var natConstraint = Expression.CreateAtMost(Expression.CreateIntLiteral(Token.NoToken, 0), Expression.CreateIdentExpr(bvNat));
+      var ax = new Attributes("axiom", new List<Expression>(), null);
+      var nat = new SubsetTypeDecl(Token.NoToken, "nat", new List<TypeParameter>(), SystemModule, bvNat, natConstraint, ax);
+      SystemModule.TopLevelDecls.Add(nat);
+      // create trait 'object'
+      ObjectDecl = new TraitDecl(Token.NoToken, "object", SystemModule, new List<TypeParameter>(), new List<MemberDecl>(), DontCompile(), null);
       SystemModule.TopLevelDecls.Add(ObjectDecl);
       // add one-dimensional arrays, since they may arise during type checking
       // Arrays of other dimensions may be added during parsing as the parser detects the need for these
@@ -564,9 +570,22 @@ namespace Microsoft.Dafny {
     }
 
     public Type StripSubsetConstraints() {
-      Type type = NormalizeExpand();
-      if (type is NatType) {
-        return new IntType();
+      Type type = Normalize();
+      var syn = type.AsTypeSynonym;
+      if (syn != null) {
+        var udt = (UserDefinedType)type;
+        var rhs = syn.RhsWithArgument(udt.TypeArgs);
+        var r = rhs.StripSubsetConstraints();
+        if (syn is SubsetTypeDecl) {
+          return r;
+        } else if (object.ReferenceEquals(r, rhs)) {
+          // There was nothing further in RHS to strip, and "type" was just a
+          // type synonym, so ignore the RHS and just return "type" (because that
+          // gives rise to better error messages).
+          return type;
+        } else {
+          return r;
+        }
       }
       return type;
     }
@@ -609,15 +628,6 @@ namespace Microsoft.Dafny {
     public bool IsIntegerType { get { return NormalizeExpand() is IntType; } }
     public bool IsRealType { get { return NormalizeExpand() is RealType; } }
     public bool IsBitVectorType { get { return NormalizeExpand() is BitvectorType; } }
-    public bool ContainsSubsetType {
-      get {
-        var t = NormalizeExpandKeepConstraints();
-        if (t is NatType) {
-          return true;
-        }
-        return t.TypeArgs.Any(a => a.ContainsSubsetType);
-      }
-    }
     public bool IsNumericBased() {
       var t = NormalizeExpand();
       return t.IsIntegerType || t.IsRealType || t.AsNewtype != null;
@@ -731,7 +741,7 @@ namespace Microsoft.Dafny {
     }
     public RedirectingTypeDecl AsRedirectingType {
       get {
-        var udt = this as UserDefinedType;  // Note, it is important to use 'this' here, not 'this.NormalizeExpand()'.  This property getter is intended to be used during resolution.
+        var udt = this as UserDefinedType;  // Note, it is important to use 'this' here, not 'this.NormalizeExpand()'.  This property getter is intended to be used during resolution, or with care thereafter.
         if (udt == null) {
           return null;
         } else {
@@ -1393,17 +1403,7 @@ namespace Microsoft.Dafny {
       return that.IsIntegerType;
     }
     public override bool IsSupertypeOf_WithSubsetTypes(Type that) {
-      that = that.NormalizeExpandKeepConstraints();
-      // treat "int" and "nat" as different
-      return that is IntType && (!(this is NatType) || that is NatType);
-    }
-  }
-
-  public class NatType : IntType
-  {
-    [Pure]
-    public override string TypeName(ModuleDefinition context, bool parseAble) {
-      return "nat";
+      return that.IsIntegerType;
     }
   }
 
@@ -1877,7 +1877,7 @@ namespace Microsoft.Dafny {
     }
 
     /// <summary>
-    /// Constructs a resolve type for an opaque type.
+    /// Constructs a resolved type for an opaque type.
     /// </summary>
     public UserDefinedType(OpaqueType_AsParameter tp, OpaqueTypeDecl decl, List<Type> typeArgs) {
       Contract.Requires(tp != null);
@@ -1918,7 +1918,7 @@ namespace Microsoft.Dafny {
       var i = NormalizeExpandKeepConstraints();
       if (i is UserDefinedType) {
         var ii = (UserDefinedType)i;
-        var t = that.NormalizeExpand() as UserDefinedType;
+        var t = that.NormalizeExpandKeepConstraints() as UserDefinedType;
         if (t == null || ii.ResolvedParam != t.ResolvedParam || ii.ResolvedClass != t.ResolvedClass || ii.TypeArgs.Count != t.TypeArgs.Count) {
           return false;
         } else {
@@ -3635,7 +3635,7 @@ namespace Microsoft.Dafny {
     public readonly Expression Constraint;
     public SubsetTypeDecl(IToken tok, string name, List<TypeParameter> typeArgs, ModuleDefinition module,
       BoundVar id, Expression constraint,
-      Attributes attributes, TypeSynonymDecl clonedFrom = null)
+      Attributes attributes, SubsetTypeDecl clonedFrom = null)
       : base(tok, name, typeArgs, module, id.Type, attributes, clonedFrom) {
       Contract.Requires(tok != null);
       Contract.Requires(name != null);

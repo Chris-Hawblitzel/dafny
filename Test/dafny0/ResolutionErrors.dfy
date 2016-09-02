@@ -1747,7 +1747,7 @@ module TypeConversions {
   trait J { }
   class C extends J { }
   method M() returns (x: int, n: nat, o: object, j: J, c: C) {
-    n := x as nat;  // error: not allowed to convert to 'nat'
+    n := x as nat;  // yes, this is allowed now
     o := j;
     j := o;  // error: cannot assign 'object' to 'J'
     j := o as J;  // error: not allowed to convert to 'J'
@@ -1756,4 +1756,11 @@ module TypeConversions {
     c := j as C;  // error: not allowed to convert to 'C'
     var oo := o as realint;  // error: there's no such type as "realint" (this once used to crash Dafny)
   }
+}
+
+// --------------------- regression
+
+module Regression_NewType {
+  class C { }
+  newtype MyInt = x: int | {} == set c: C | c  // this once crashed Dafny
 }
