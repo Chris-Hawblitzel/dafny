@@ -338,7 +338,7 @@ namespace Microsoft.Dafny
 
     static string WriteDafnyProgramToFile(string dafnyProgramName, string csharpProgram, bool completeProgram, TextWriter outputWriter)
     {
-      string targetFilename = Path.ChangeExtension(dafnyProgramName, "cs");
+      string targetFilename = Path.ChangeExtension(dafnyProgramName, (DafnyOptions.O.Kremlin) ? "json" : "cs");
       using (TextWriter target = new StreamWriter(new FileStream(targetFilename, System.IO.FileMode.Create))) {
         target.Write(csharpProgram);
         string relativeTarget = Path.GetFileName(targetFilename);
@@ -364,7 +364,7 @@ namespace Microsoft.Dafny
 
       // Compile the Dafny program into a string that contains the C# program
       StringWriter sw = new StringWriter();
-      Dafny.Compiler compiler = new Dafny.Compiler();
+      Dafny.ICompiler compiler = (DafnyOptions.O.Kremlin) ? (Dafny.ICompiler)new Dafny.KremlinCompiler() : (Dafny.ICompiler)new Dafny.Compiler();
       compiler.ErrorWriter = outputWriter;
       var hasMain = compiler.HasMain(dafnyProgram);
       if (DafnyOptions.O.RunAfterCompile && !hasMain) {
@@ -383,7 +383,7 @@ namespace Microsoft.Dafny
       }
 
       // compile the program into an assembly
-      if (!completeProgram)
+      if (!completeProgram || DafnyOptions.O.Kremlin)
       {
         // don't compile
       }

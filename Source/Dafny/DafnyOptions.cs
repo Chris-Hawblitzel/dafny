@@ -75,6 +75,7 @@ namespace Microsoft.Dafny
     public bool WarnShadowing = false;
     public int DeprecationNoise = 1;
     public int Allocated = 1;
+    public bool Kremlin = false; // True emits a Kremlin AST in place of C# code
     public bool IronDafny = 
 #if ENABLE_IRONDAFNY 
       true
@@ -281,6 +282,11 @@ namespace Microsoft.Dafny
             return true;
         }
 
+        case "kremlin": {
+            Kremlin = true;
+            return true;
+          }
+
         case "noIronDafny": {
             IronDafny = false;
             return true;
@@ -473,6 +479,7 @@ namespace Microsoft.Dafny
                 5 - Assert/assume allocated(x) on all variables, even bound
                     variables in quantifiers.  This is the original Dafny
                     behavior.
+  /kremlin      Emit Kremlin AST instead of C# code
   /ironDafny    Enable experimental features needed to support Ironclad/Ironfleet. Use of
                 these features may cause your code to become incompatible with future
                 releases of Dafny.
