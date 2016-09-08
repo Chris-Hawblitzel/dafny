@@ -456,6 +456,7 @@ namespace Microsoft.Dafny {
 
       if (enclosingThis != null) {
         WriteBinder(enclosingThis, ThisName, false);
+        VarTracker.Push(enclosingThis);
       }
 
       int i = 0;
@@ -465,6 +466,7 @@ namespace Microsoft.Dafny {
         }
         string name = FormalName(arg, i);
         WriteBinder(arg, name, false);
+        VarTracker.Push(arg);
         i++;
       }
 
@@ -809,6 +811,7 @@ namespace Microsoft.Dafny {
                   j.WriteStartArray();
                   WriteBinder(p, p.CompileName, true); // lident
                   WriteDefaultValue(p.Type);    // = default
+                  VarTracker.Push(p);
                   // "in" is the contents that follow
                   j.WriteStartArray();
                   j.WriteValue("ESequence");
@@ -1529,7 +1532,7 @@ namespace Microsoft.Dafny {
                 j.WriteStartArray();
                 WriteBinder(target, target.CompileName, true); // lident
                 TrRhs(target, null, rhs); // expr
-
+                VarTracker.Push(target);
                 // "in" is the contents that follow
               }
             }
@@ -1982,6 +1985,7 @@ namespace Microsoft.Dafny {
               j.WriteStartArray();
               WriteBinder(l, l.CompileName, true); // lident
               WriteDefaultValue(l.Type);    // = default
+              VarTracker.Push(l);
               // "in" is the contents that follow
               j.WriteStartArray();
               j.WriteValue("ESequence");
@@ -2022,8 +2026,6 @@ namespace Microsoft.Dafny {
       Contract.Requires(v != null);
       Contract.Requires(v.IsGhost == false);
 
-      VarTracker.Push(v);
-
       using (WriteObject()) {
         j.WritePropertyName("name");
         j.WriteValue(name);
@@ -2051,6 +2053,7 @@ namespace Microsoft.Dafny {
           WriteBinder(v, v.CompileName, true);
           // expr1
           WriteDefaultValue(v.Type);
+          VarTracker.Push(v);
           // expr2 - the "in" expression
           WriteEUnit();
         }
@@ -2101,46 +2104,22 @@ namespace Microsoft.Dafny {
       Contract.Requires(expr != null);
       Contract.Requires(seqType != null);
 
-      // ELet tmpVar1 = let tmpVar2 = EBufCreate in {EBufWrite(tmpVar2+off,val)... } in tmpVar1;
+      // ELet tmpVar1 = let tmpVar2 = EBufCreateL (list of initializers)  in _ in tmpVar1;
       var tmpVar1 = new BoundVar(expr[0].tok, idGenerator.FreshId("_seq"), seqType);
-      var tmpVar2 = new BoundVar(expr[0].tok, idGenerator.FreshId("_seq"), seqType);
       using (WriteArray()) {
         j.WriteValue("ELet");
         using (WriteArray()) { // of (binder * expr * expr)
-          WriteBinder(tmpVar1, tmpVar1.CompileName, false);
-          // expr1
-          using (WriteArray()) {
-            j.WriteValue("ELet");
-            using (WriteArray()) { // of (binder * expr * expr)
-              WriteBinder(tmpVar2, tmpVar2.CompileName, false);
-              // expr1
-              using (WriteArray()) {
-                j.WriteValue("EBufCreate"); // EBufCreate (expr * expr)
-                using (WriteArray()) { // (expr * expr)
-                  WriteConstant(0);
-                  WriteConstant((UInt32)expr.Count);
-                }
-              }
-              // expr2
-              using (WriteArray()) {
-                j.WriteValue("ESequence");
-                using (WriteArray()) {
-                  for (int i=0; i<expr.Count; ++i) {
-                    using (WriteArray()) {
-                      j.WriteValue("EBufWrite");
-                      using (WriteArray()) {
-                        WriteEBound(tmpVar2);
-                        WriteConstant(i);
-                        TrExpr(expr[i], inLetExprBody);
-                      }
-                    }
-                  }
-                }
+          WriteBinder(tmpVar1, tmpVar1.CompileName, false); // binder
+          using (WriteArray()) {  // expr1
+            j.WriteValue("EBufCreateL"); // of expr list
+            using (WriteArray()) {
+              for (int i = 0; i < expr.Count; ++i) {
+                TrExpr(expr[i], inLetExprBody);
               }
             }
           }
-          // expr2
-          WriteEBound(tmpVar1);
+          VarTracker.Push(tmpVar1);
+          WriteEBound(tmpVar1); // expr2
         }
       }
     }
