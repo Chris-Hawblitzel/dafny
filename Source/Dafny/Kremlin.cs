@@ -762,14 +762,10 @@ namespace Microsoft.Dafny {
           using (WriteArray()) { // start of binder list
             WriteFormals(f.Formals);
           }
-          using (WriteArray()) {
-            j.WriteValue("ESequence");
-            using (WriteArray()) {
-              WriteEPushFrame();
-              CompileReturnBody(f.Body);
-              WriteEPopFrame();
-            }
-          }
+          // Don't wrap in EPushFrame/EPopFrame as functions may allocate
+          // a return EBuf and we want that to happen in the caller's
+          // stack frame.
+          CompileReturnBody(f.Body);
         }
       }
     }
