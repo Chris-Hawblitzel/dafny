@@ -369,6 +369,7 @@ namespace Microsoft.Dafny {
             using (WriteArray()) {
               j.WriteValue("ESequence");
               using (WriteArray()) {
+                WriteEPushFrame();
                 foreach (Formal arg in ctor.Formals) {
                   if (arg.IsGhost) {
                     continue;
@@ -394,6 +395,7 @@ namespace Microsoft.Dafny {
                     j.Formatting = old;
                   }
                 }
+                WriteEPopFrame();
               }
             }
           }
@@ -760,7 +762,14 @@ namespace Microsoft.Dafny {
           using (WriteArray()) { // start of binder list
             WriteFormals(f.Formals);
           }
-          CompileReturnBody(f.Body);
+          using (WriteArray()) {
+            j.WriteValue("ESequence");
+            using (WriteArray()) {
+              WriteEPushFrame();
+              CompileReturnBody(f.Body);
+              WriteEPopFrame();
+            }
+          }
         }
       }
     }
@@ -802,6 +811,7 @@ namespace Microsoft.Dafny {
           using (WriteArray()) {
             j.WriteValue("ESequence");
             using (WriteArray()) {
+              WriteEPushFrame();
               List<Formal> Outs = new List<Formal>(m.Outs);
               foreach (Formal p in Outs) { // bugbug: this now needs to be hoisted out and made recursive
                 if (!p.IsGhost) {
@@ -848,6 +858,7 @@ namespace Microsoft.Dafny {
                 j.WriteEndArray(); // Closing out the list of binder * expr * expr
                 j.WriteEndArray(); // Closing out the array above ELet
               }
+              WriteEPopFrame();
             }
           }
         }
@@ -874,18 +885,28 @@ namespace Microsoft.Dafny {
       }
     }
 
-    void WriteEUnit()
-    {
+    void WriteEUnit() {
       using (WriteArray()) {
         j.WriteValue("EUnit");
      }
     }
 
-    void WriteTUnit()
-    {
+    void WriteTUnit() {
       using (WriteArray()) {
         j.WriteValue("TUnit");
      }
+    }
+
+    void WriteEPushFrame() {
+      using (WriteArray()) {
+        j.WriteValue("EPushFrame");
+      }
+    }
+
+    void WriteEPopFrame() {
+      using (WriteArray()) {
+        j.WriteValue("EPopFrame");
+      }
     }
 
     void WriteEBound(IVariable var) {
@@ -985,6 +1006,7 @@ namespace Microsoft.Dafny {
         WriteTypeName(t);
       }
     }
+
     void WriteTypeName_Companion(Type type) {
       Contract.Requires(type != null);
       var udt = type as UserDefinedType;
@@ -1238,8 +1260,7 @@ namespace Microsoft.Dafny {
     }
 
     // Write out a default value as an expr
-    void WriteDefaultValue(Type type)
-    {
+    void WriteDefaultValue(Type type) {
       Contract.Requires(type != null);
       Contract.Ensures(Contract.Result<string>() != null);
 
