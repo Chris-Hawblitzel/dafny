@@ -1775,6 +1775,24 @@ namespace Microsoft.Dafny {
       WriteEAbort("TrAssignSuchThat is unsupported"); // bugbug: implement
     }
 
+    // The EBufRead/EBufWrite index expression must be a UInt32 type.  Dafny
+    // uses BigInteger, which often resolves to UInt64.  So explicitly cast
+    // buffer offsets to UInt32
+    private void TrBufferIndexExpr(Expression expr, bool isInLetExprBody) {
+      using (WriteArray()) {
+        j.WriteValue("ECast");
+        using (WriteArray()) { // of (expr * typ) - cast to UInt32
+          TrExpr(expr, isInLetExprBody);
+          using (WriteArray()) {
+            j.WriteValue("TInt");
+            using (WriteArray()) {
+              j.WriteValue("UInt32");
+            }
+          }
+        }
+      }
+    }
+
     void MatchCasePrelude(UserDefinedType sourceType, DatatypeCtor ctor, List<BoundVar/*!*/>/*!*/ arguments, int caseIndex, int caseCount) {
       Contract.Requires(sourceType != null);
       Contract.Requires(ctor != null);
@@ -1812,10 +1830,10 @@ namespace Microsoft.Dafny {
             } else {
               using (WriteArray()) {
                 j.WriteValue("EBufWrite");
-                using (WriteArray()) {
-                  TrExpr(e.Seq, false);
-                  TrExpr(e.E0, false);
-                  TrAssignmentRhs(rhs);
+                using (WriteArray()) { // of (expr * expr * expr)
+                  TrExpr(e.Seq, false);    // expr1 - the buffer identifier
+                  TrBufferIndexExpr(e.E0, false); // expr2 - the buffer offset
+                  TrAssignmentRhs(rhs);    // expr3 - the value to write
                 }
               }
             }
@@ -1833,28 +1851,30 @@ namespace Microsoft.Dafny {
           else if (targetExpr is MemberSelectExpr) {
             MemberSelectExpr e = (MemberSelectExpr)targetExpr;
             SpecialField sf = e.Member as SpecialField;
-            using (WriteArray()) {
-              j.WriteValue("EAssign");
+            if (sf != null) {
+              WriteEAbort("BUGBUG MemberSelectExpr TrRhs if SpecialField not supported"); // bugbug: implement
+            } else {
+#if true
+              // Dafny source, in sha256_main.i.dfy:
+              //         ctx.num_total_bytes := ctx.num_total_bytes + num_block_bytes;
+              WriteEAbort("BUGBUG: mutation of a field in a UDT is not supported"); // bugbug: implement
+#else
               using (WriteArray()) {
-                if (sf != null) {
-                  using (WriteArray()) {
-                    WriteEAbort("BUGBUG MemberSelectExpr TrRhs if SpecialField not supported");
-                  }
-                }
-                else {
-                  using (WriteArray()) {
-                    // e.Member.CompileName is the field name
-                    // e.Obj.Name is the struct name
-                    j.WriteValue("EField");
-                    using (WriteArray()) { // of (lident * expr * ident)
-                      WriteLident(e.Obj.Type);
-                      TrExpr(e.Obj, false); // This will generate an EBound reference to the variable
-                      j.WriteValue(e.Member.CompileName);
-                    }
+                j.WriteValue("EAssign");
+                using (WriteArray()) {
+                using (WriteArray()) {
+                  // e.Member.CompileName is the field name
+                  // e.Obj.Name is the struct name
+                  j.WriteValue("EField");
+                  using (WriteArray()) { // of (lident * expr * ident)
+                    WriteLident(e.Obj.Type);
+                    TrExpr(e.Obj, false); // This will generate an EBound reference to the variable
+                    j.WriteValue(e.Member.CompileName);
                   }
                 }
                 TrAssignmentRhs(rhs);
               }
+#endif
             }
           }
           else {
@@ -1956,8 +1976,31 @@ namespace Microsoft.Dafny {
         TrExpr(e.Expr, false);
 
       } else {
+
         TypeRhs tp = (TypeRhs)rhs;
-        WriteEAbort("BUGBUG: TypeRhs is unsupported"); // bugbug: implement
+        if (tp.ArrayDimensions == null) {
+          WriteEAbort("BUGBUG: TypeRhs with no ArrayDimensions is unsupported"); // bugbug: implement
+        }
+        else {
+          if (tp.EType.IsIntegerType || tp.EType.IsTypeParameter) {
+            WriteEAbort("BUGBUG: TypeRhs with IntegerType or TypeParameter is unsupported"); // bugbug: implement
+          }
+          else if (tp.ArrayDimensions.Count == 1) {
+            // Dafny: var W := new uint32[64];
+            // C#:    new TypeName[ (int)ParenExpr, ... ];
+            using (WriteArray()) {
+              j.WriteValue("EBufCreate");
+              using (WriteArray()) { // of (expr * expr)
+                WriteConstant(0); // bugbug: this needs to be a constant of the array element type, not just UInt32
+                TrExpr(tp.ArrayDimensions[0], false);
+              }
+            }
+          }
+          else {
+            WriteEAbort("BUGBUG: TypeRhs with multi-dimensional array is unsupported"); // bugbug: implement
+          }
+        }
+
       }
     }
 
@@ -2197,7 +2240,7 @@ namespace Microsoft.Dafny {
             j.WriteValue(KremlinOp);
             using (WriteArray()) {
               TrExpr(e.Seq, isInLetExprBody); // Specify the .Seq array
-              TrExpr(e.E0, isInLetExprBody);  // Offset in the array
+              TrBufferIndexExpr(e.E0, isInLetExprBody);  // Offset in the array
               if (rhs != null) {
                 WriteEBound(rhs);             // Value to write
               }
@@ -2214,7 +2257,7 @@ namespace Microsoft.Dafny {
           j.WriteValue(KremlinOp);
           using (WriteArray()) {
             TrExpr(e.Seq, isInLetExprBody); // Specify the .Seq array
-            TrExpr(e.E0, isInLetExprBody);  // Offset in the array
+            TrBufferIndexExpr(e.E0, isInLetExprBody);  // Offset in the array
             if (rhs != null) {
               WriteEBound(rhs);             // Value to write
             }
@@ -2572,7 +2615,7 @@ namespace Microsoft.Dafny {
                       Contract.Assert(false); throw new cce.UnreachableException();  // unexpected binary expression
                   }
                 }
-                WriteTypeWidth(expr.Type);
+                WriteTypeWidth(e.E0.Type);
               } // end of EOp
               j.Formatting = old;
             } // end of EOp
