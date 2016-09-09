@@ -1786,7 +1786,7 @@ namespace Microsoft.Dafny {
     // The EBufRead/EBufWrite index expression must be a UInt32 type.  Dafny
     // uses BigInteger, which often resolves to UInt64.  So explicitly cast
     // buffer offsets to UInt32
-    private void TrBufferIndexExpr(Expression expr, bool isInLetExprBody) {
+    private void TrBufferIndexSizeExpr(Expression expr, bool isInLetExprBody) {
       using (WriteArray()) {
         j.WriteValue("ECast");
         using (WriteArray()) { // of (expr * typ) - cast to UInt32
@@ -1840,7 +1840,7 @@ namespace Microsoft.Dafny {
                 j.WriteValue("EBufWrite");
                 using (WriteArray()) { // of (expr * expr * expr)
                   TrExpr(e.Seq, false);    // expr1 - the buffer identifier
-                  TrBufferIndexExpr(e.E0, false); // expr2 - the buffer offset
+                  TrBufferIndexSizeExpr(e.E0, false); // expr2 - the buffer offset
                   TrAssignmentRhs(rhs);    // expr3 - the value to write
                 }
               }
@@ -1999,8 +1999,8 @@ namespace Microsoft.Dafny {
             using (WriteArray()) {
               j.WriteValue("EBufCreate");
               using (WriteArray()) { // of (expr * expr)
-                WriteConstant(0); // bugbug: this needs to be a constant of the array element type, not just UInt32
-                TrExpr(tp.ArrayDimensions[0], false);
+                WriteDefaultValue(tp.EType);
+                TrBufferIndexSizeExpr(tp.ArrayDimensions[0], false);
               }
             }
           }
@@ -2248,7 +2248,7 @@ namespace Microsoft.Dafny {
             j.WriteValue(KremlinOp);
             using (WriteArray()) {
               TrExpr(e.Seq, isInLetExprBody); // Specify the .Seq array
-              TrBufferIndexExpr(e.E0, isInLetExprBody);  // Offset in the array
+              TrBufferIndexSizeExpr(e.E0, isInLetExprBody);  // Offset in the array
               if (rhs != null) {
                 WriteEBound(rhs);             // Value to write
               }
@@ -2265,7 +2265,7 @@ namespace Microsoft.Dafny {
           j.WriteValue(KremlinOp);
           using (WriteArray()) {
             TrExpr(e.Seq, isInLetExprBody); // Specify the .Seq array
-            TrBufferIndexExpr(e.E0, isInLetExprBody);  // Offset in the array
+            TrBufferIndexSizeExpr(e.E0, isInLetExprBody);  // Offset in the array
             if (rhs != null) {
               WriteEBound(rhs);             // Value to write
             }
