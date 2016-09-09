@@ -807,7 +807,6 @@ namespace Microsoft.Dafny {
           using (WriteArray()) {
             j.WriteValue("ESequence");
             using (WriteArray()) {
-              WriteEPushFrame();
               List<Formal> Outs = new List<Formal>(m.Outs);
               foreach (Formal p in Outs) { // bugbug: this now needs to be hoisted out and made recursive
                 if (!p.IsGhost) {
@@ -825,6 +824,7 @@ namespace Microsoft.Dafny {
                   WriteEUnit();
                 }
               }
+              WriteEPushFrame();
               if (m.Body == null) {
                 Error("Method {0} has no body", m.FullName);
               } else {
@@ -839,10 +839,8 @@ namespace Microsoft.Dafny {
                 Contract.Assert(enclosingMethod == m);
                 enclosingMethod = null;
               }
-              if (m.Outs.Count == 0) {
-                WriteEUnit(); // No return value
-              }
-              else {
+              WriteEPopFrame();
+              if (m.Outs.Count != 0) {
                 var ReturnValue = m.Outs[0];
                 WriteEBound(ReturnValue);
               }
@@ -854,7 +852,6 @@ namespace Microsoft.Dafny {
                 j.WriteEndArray(); // Closing out the list of binder * expr * expr
                 j.WriteEndArray(); // Closing out the array above ELet
               }
-              WriteEPopFrame();
             }
           }
         }
