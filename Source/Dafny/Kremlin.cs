@@ -1317,8 +1317,19 @@ namespace Microsoft.Dafny {
           WriteDefaultValue(xType.AsNewtype.BaseType);
         }
       }
+      else if (xType.IsArrayType) {
+        ArrayClassDecl at = xType.AsArrayType;
+        Contract.Assert(at != null);  // follows from type.IsArrayType
+        Type elType = UserDefinedType.ArrayElementType(xType);
+        using (WriteArray()) {
+          j.WriteValue("EBufCreateL");
+          using (WriteArray()) { // of (list of initializers)
+            WriteDefaultValue(elType);
+          }
+        }
+      }
       else if (xType.IsRefType) {
-        WriteEUnit();
+        WriteEAbort("BUGBUG: DefaultValue for IsRefType unsupported"); // bugbug: implement
       }
       else if (xType.IsDatatype) {
         var udt = (UserDefinedType)xType;
