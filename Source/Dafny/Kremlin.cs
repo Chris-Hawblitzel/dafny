@@ -16,6 +16,7 @@ using Newtonsoft.Json;
 namespace Microsoft.Dafny {
 
   static class MyExtensions {
+    // Convert a NativeType to a Kremlin Constant.width
     public static string KremlinType(this NativeType n) {
       string t = (n.LowerBound.IsZero) ? "UInt" : "SInt";
       return t + ((n.UpperBound.ToByteArray().Length-1) * 8).ToString();
@@ -84,6 +85,71 @@ namespace Microsoft.Dafny {
       ErrorWriter.WriteLine(s);
       j.WriteComment("ERROR: " + s);
       errorCount++;
+    }
+
+    static class KremlinAst {
+      public const string Version = "12";
+
+      // InputAst.Decl
+      public const string DFunction = "DFunction";
+      public const string DTypeAlias = "DTypeAlias";
+      public const string DGlobal = "DGlobal";
+      public const string DTypeFlat = "DTypeFlat";  
+
+      // InputAst.typ
+      public const string TInt = "TInt";                  // of K.width
+      public const string TBuf = "TBuf";                  // of typ
+      public const string TUnit = "TUnit";
+      public const string TQualified = "TQualified";      // of lident
+      public const string TBool = "TBool";
+      public const string TAny = "TAny";
+      public const string TArrow = "TArrow";              // of (typ * typ)   (** t1 -> t2 *)
+      public const string TZ = "TZ";
+
+      // InputAst.Expr
+      public const string EBound = "EBound";              // of var
+      public const string EQualified = "EQualified";      // of lident
+      public const string EConstant = "EConstant";        // of K.t
+      public const string EUnit = "EUnit";
+      public const string EApp = "EApp";                  // of (expr * expr list)
+      public const string ELet = "ELet";                  // of (binder * expr * expr)
+      public const string EIfThenElse = "EIfThenElse";    // of (expr * expr * expr)
+      public const string ESequence = "ESequence";        // of expr list
+      public const string EAssign = "EAssign";            // of (expr * expr)   (** left expression can only be a EBound or EOpen *)
+      public const string EBufCreate = "EBufCreate";      // of (expr * expr)   (** initial value, length *)
+      public const string EBufRead = "EBufRead";          // of (expr * expr)   (** e1[e2] *)
+      public const string EBufWrite = "EBufWrite";        // of (expr * expr * expr)   (** e1[e2] <- e3 *)
+      public const string EBufSub = "EBufSub";            // of (expr * expr)   (** e1 + e2 *)
+      public const string EBufBlit = "EBufBlit";          // of (expr * expr * expr * expr * expr)  (** e1, index; e2, index; len *)
+      public const string EMatch = "EMatch";              // of (expr * branches)
+      public const string EOp = "EOp";                    // of (K.op * K.width)
+      public const string ECast = "ECast";                // of (expr * typ)
+      public const string EPushFrame = "EPushFrame";
+      public const string EPopFrame = "EPopFrame";
+      public const string EBool = "EBool";                //  of bool
+      public const string EAny = "EAny";                  // (** to indicate that the initial value of a mutable let-binding does not matter *)
+      public const string EAbort = "EAbort";              // (** exits the program prematurely *)
+      public const string EReturn = "EReturn";            //  of expr
+      public const string EFlat = "EFlat";                // of (lident * (ident * expr) list)  (** contains the name of the type we're building *)
+      public const string EField = "EField";              // of (lident * expr * ident)         (** contains the name of the type we're selecting from *)
+      public const string EWhile = "EWhile";              //  of (expr * expr)
+      public const string EBufCreateL = "EBufCreateL";    // of expr list
+
+      // InputAst.pattern
+      public const string PUnit = "PUnit";
+      public const string PBool = "PBool";                // of bool
+      public const string PVar = "PVar";                  // of binder
+
+      // Constant.width
+      public const string UInt8 = "UInt8";
+      public const string UInt16 = "UInt16";
+      public const string UInt32 = "UInt32";
+      public const string UInt64 = "UInt64";
+      public const string Int8 = "Int8";
+      public const string Int16 = "Int16";
+      public const string Int32 = "Int32";
+      public const string Int64 = "Int64";
+      public const string Bool = "Bool";
     }
 
 
@@ -251,7 +317,7 @@ namespace Microsoft.Dafny {
         // v10 = change to EOpen
         // v11 = removed type from EIfThenElse, removed lident from EFlat and EField.  Binder change.
         // v12 = DTypeFlat supports mutable fields
-        j.WriteRawValue("12"); // binary_format = version * file list
+        j.WriteRawValue(KremlinAst.Version); // binary_format = version * file list
         using (WriteArray()) { // start of file list
 
           // bugbug: generate builtins as needed
@@ -293,7 +359,7 @@ namespace Microsoft.Dafny {
                     var nt = (NewtypeDecl)d;
                     WriteToken(d.tok);
                     using (WriteArray()) {
-                      j.WriteValue("DTypeAlias");
+                      j.WriteValue(KremlinAst.DTypeAlias);
                       using (WriteArray()) { //  (lident * typ)
                         WriteLident(nt.FullCompileName);
                         WriteTypeName(nt.BaseType);
@@ -360,7 +426,7 @@ namespace Microsoft.Dafny {
         enclosingThis = new BoundVar(ctor.tok, ThisName, thisType);
 
         using (WriteArray()) {
-          j.WriteValue("DFunction");
+          j.WriteValue(KremlinAst.DFunction);
           using (WriteArray()) { // of (typ * lident * binder list * expr)
             WriteTUnit(); // returns nothing
             WriteLident(ctor.FullName);
@@ -368,7 +434,7 @@ namespace Microsoft.Dafny {
               WriteFormals(ctor.Formals);
             }
             using (WriteArray()) {
-              j.WriteValue("ESequence");
+              j.WriteValue(KremlinAst.ESequence);
               using (WriteArray()) {
                 WriteEPushFrame();
                 foreach (Formal arg in ctor.Formals) {
@@ -379,11 +445,11 @@ namespace Microsoft.Dafny {
                   using (WriteArray()) {
                     Formatting old = j.Formatting;
                     j.Formatting = Formatting.None;
-                    j.WriteValue("EAssign");
+                    j.WriteValue(KremlinAst.EAssign);
                     using (WriteArray()) { // of (expr * expr)
                       // First expr:  EField of 'this' to write into
                       using (WriteArray()) {
-                        j.WriteValue("EField");
+                        j.WriteValue(KremlinAst.EField);
                         using (WriteArray()) {  // of (lident * expr * ident)
                           WriteLident(enclosingThis.Type); // lident
                           WriteEBound(enclosingThis);
@@ -410,7 +476,7 @@ namespace Microsoft.Dafny {
 
       foreach (DatatypeCtor ctor in dt.Ctors) {
         using (WriteArray()) {
-          j.WriteValue("DTypeFlat"); // of (lident * (ident * typ) list)
+          j.WriteValue(KremlinAst.DTypeFlat); // of (lident * (ident * typ) list)
           using (WriteArray()) {
             WriteLident(dt.FullCompileName); // lident
             using (WriteArray()) { // list
@@ -553,7 +619,7 @@ namespace Microsoft.Dafny {
       Contract.Requires(c != null);
 
       using (WriteArray()) {
-        j.WriteValue("DTypeFlat"); // of (lident * (ident * (typ * bool)) list)
+        j.WriteValue(KremlinAst.DTypeFlat); // of (lident * (ident * (typ * bool)) list)
         using (WriteArray()) {
           WriteLident(c.FullCompileName);
           using (WriteArray()) { // list
@@ -765,7 +831,7 @@ namespace Microsoft.Dafny {
       }
 
       using (WriteArray()) {
-        j.WriteValue("DFunction");
+        j.WriteValue(KremlinAst.DFunction);
         using (WriteArray()) { // of (typ * lident * binder list * expr)
           WriteTypeName(f.ResultType); // typ
           WriteLident(f); // lident
@@ -807,7 +873,7 @@ namespace Microsoft.Dafny {
       var pThis = new BoundVar(c.tok, ThisName, thisType);
 
       using (WriteArray()) {
-        j.WriteValue("DFunction");
+        j.WriteValue(KremlinAst.DFunction);
         using (WriteArray()) { // of (typ * lident * binder list * expr)
           WriteMethodReturnType(m.Outs); // typ
           WriteLident(m); // lident
@@ -815,21 +881,21 @@ namespace Microsoft.Dafny {
             WriteFormals(m.Ins);
           }
           using (WriteArray()) {
-            j.WriteValue("ESequence");
+            j.WriteValue(KremlinAst.ESequence);
             using (WriteArray()) {
               List<Formal> Outs = new List<Formal>(m.Outs);
               foreach (Formal p in Outs) { // bugbug: this now needs to be hoisted out and made recursive
                 if (!p.IsGhost) {
                   // ELet v in { Stmt 
                   j.WriteStartArray();
-                  j.WriteValue("ELet");
+                  j.WriteValue(KremlinAst.ELet);
                   j.WriteStartArray();
                   WriteBinder(p, p.CompileName, true); // lident
                   WriteDefaultValue(p.Type);    // = default
                   VarTracker.Push(p);
                   // "in" is the contents that follow
                   j.WriteStartArray();
-                  j.WriteValue("ESequence");
+                  j.WriteValue(KremlinAst.ESequence);
                   j.WriteStartArray();
                   WriteEUnit();
                 }
@@ -884,31 +950,31 @@ namespace Microsoft.Dafny {
     void WriteEAbort(string msg) {
       using (WriteArray()) {
         j.WriteComment(msg);
-        j.WriteValue("EAbort");
+        j.WriteValue(KremlinAst.EAbort);
       }
     }
 
     void WriteEUnit() {
       using (WriteArray()) {
-        j.WriteValue("EUnit");
+        j.WriteValue(KremlinAst.EUnit);
      }
     }
 
     void WriteTUnit() {
       using (WriteArray()) {
-        j.WriteValue("TUnit");
+        j.WriteValue(KremlinAst.TUnit);
      }
     }
 
     void WriteEPushFrame() {
       using (WriteArray()) {
-        j.WriteValue("EPushFrame");
+        j.WriteValue(KremlinAst.EPushFrame);
       }
     }
 
     void WriteEPopFrame() {
       using (WriteArray()) {
-        j.WriteValue("EPopFrame");
+        j.WriteValue(KremlinAst.EPopFrame);
       }
     }
 
@@ -916,7 +982,7 @@ namespace Microsoft.Dafny {
       Formatting old = j.Formatting;
       j.Formatting = Formatting.None;
       using (WriteArray()) { // expr
-        j.WriteValue("EBound");
+        j.WriteValue(KremlinAst.EBound);
         j.WriteComment(var.CompileName);
         j.WriteValue(VarTracker.GetIndex(var));
       }
@@ -943,7 +1009,7 @@ namespace Microsoft.Dafny {
       } else if (expr is ITEExpr) {
         ITEExpr e = (ITEExpr)expr;
         using (WriteArray()) { // Start of EIfThenElse
-          j.WriteValue("EIfThenElse"); // of (expr * expr * expr)
+          j.WriteValue(KremlinAst.EIfThenElse); // of (expr * expr * expr)
           using (WriteArray()) {
             TrExpr(e.Test, inLetExprBody);
             TrExprOpt(e.Thn, inLetExprBody);
@@ -953,13 +1019,13 @@ namespace Microsoft.Dafny {
       } else if (expr is MatchExpr) {
         var e = (MatchExpr)expr;
         using (WriteArray()) {
-          j.WriteValue("EMatch"); // of (expr * branches)
+          j.WriteValue(KremlinAst.EMatch); // of (expr * branches)
           TrExpr(e.Source, inLetExprBody);
           using (WriteArray()) { // start of branches
             if (e.Cases.Count == 0) {
               // the verifier would have proved we never get here; still, we need some code that will compile
               using (WriteArray()) {
-                j.WriteValue("PUnit");
+                j.WriteValue(KremlinAst.PUnit);
                 WriteEAbort("MatchExpr with no cases"); // bugbug: Dafny emits code to throw a C# exception here
               }
             }
@@ -1038,23 +1104,23 @@ namespace Microsoft.Dafny {
         var xType = type.NormalizeExpand();
         if (xType is TypeProxy) {
           // unresolved proxy; just treat as ref, since no particular type information is apparently needed for this type
-          j.WriteValue("TUnit");
+          j.WriteValue(KremlinAst.TUnit);
         }
         else if (xType is BoolType) {
-          j.WriteValue("TBool");
+          j.WriteValue(KremlinAst.TBool);
         }
         else if (xType is CharType) {
           // bugbug: is this the right way to express a Dafny char?
-          j.WriteValue("TInt");
+          j.WriteValue(KremlinAst.TInt);
           using (WriteArray()) {
-            j.WriteValue("Int8");
+            j.WriteValue(KremlinAst.Int8);
           }
         }
         else if (xType is IntType) {
           var it = (IntType)xType;
           // bugbug: A Dafny IntType is an infinite-precision integer.  Add 
           //         runtime support for them as needed.
-          j.WriteValue("TQualified");
+          j.WriteValue(KremlinAst.TQualified);
           using (WriteArray()) {
             using (WriteArray()) {
               j.WriteValue("Dafny");
@@ -1071,7 +1137,7 @@ namespace Microsoft.Dafny {
         else if (xType.AsNewtype != null) {
           NativeType nativeType = xType.AsNewtype.NativeType;
           if (nativeType != null) {
-            j.WriteValue("TInt");
+            j.WriteValue(KremlinAst.TInt);
             using (WriteArray()) {
               j.WriteValue(nativeType.KremlinType());
             }
@@ -1087,7 +1153,7 @@ namespace Microsoft.Dafny {
           ArrayClassDecl at = xType.AsArrayType;
           Contract.Assert(at != null);  // follows from type.IsArrayType
           Type elType = UserDefinedType.ArrayElementType(xType);
-          j.WriteValue("TBuf");
+          j.WriteValue(KremlinAst.TBuf);
           WriteTypeName(elType);
           // bugbug: at.Dims is currently ignored
         }
@@ -1125,7 +1191,7 @@ namespace Microsoft.Dafny {
           if (argType is ObjectType) {
             Error("compilation of seq<object> is not supported; consider introducing a ghost", j);
           }
-          j.WriteValue("TBuf");
+          j.WriteValue(KremlinAst.TBuf);
           WriteTypeName(argType);
         }
         else if (xType is MultiSetType) {
@@ -1164,11 +1230,11 @@ namespace Microsoft.Dafny {
           j.WriteValue("0");
         }
         else if (xType is BoolType) {
-          j.WriteValue("Bool");
+          j.WriteValue(KremlinAst.Bool);
         }
         else if (xType is CharType) {
           // bugbug: is this the right way to express a Dafny char?
-          j.WriteValue("Int8");
+          j.WriteValue(KremlinAst.Int8);
         }
         else if (xType is IntType) {
           var it = (IntType)xType;
@@ -1237,7 +1303,7 @@ namespace Microsoft.Dafny {
       Contract.Requires(fullCompileName != null);
       Contract.Requires(typeArgs != null);
 
-      j.WriteValue("TQualified");
+      j.WriteValue(KremlinAst.TQualified);
       using (WriteArray()) {
         string s = fullCompileName;
         if (typeArgs.Count != 0) {
@@ -1277,9 +1343,9 @@ namespace Microsoft.Dafny {
         var old = j.Formatting;
         j.Formatting = Formatting.None;
         using (WriteArray()) {
-          j.WriteValue("EConstant");
+          j.WriteValue(KremlinAst.EConstant);
           using (WriteArray()) {
-            j.WriteValue("TBool");
+            j.WriteValue(KremlinAst.TBool);
             j.WriteValue(false);
           }
         }
@@ -1289,9 +1355,9 @@ namespace Microsoft.Dafny {
         var old = j.Formatting;
         j.Formatting = Formatting.None;
         using (WriteArray()) {
-          j.WriteValue("EConstant");
+          j.WriteValue(KremlinAst.EConstant);
           using (WriteArray()) {
-            j.WriteValue("TInt");
+            j.WriteValue(KremlinAst.TInt);
             j.WriteValue((int)'D');
           }
         }
@@ -1313,7 +1379,7 @@ namespace Microsoft.Dafny {
           var old = j.Formatting;
           j.Formatting = Formatting.None;
           using (WriteArray()) {
-            j.WriteValue("EConstant");
+            j.WriteValue(KremlinAst.EConstant);
             using (WriteArray()) { // of K.t
               using (WriteArray()) {
                 j.WriteValue(nativeType.KremlinType());
@@ -1332,7 +1398,7 @@ namespace Microsoft.Dafny {
         Contract.Assert(at != null);  // follows from type.IsArrayType
         Type elType = UserDefinedType.ArrayElementType(xType);
         using (WriteArray()) {
-          j.WriteValue("EBufCreateL");
+          j.WriteValue(KremlinAst.EBufCreateL);
           using (WriteArray()) { // of (list of initializers)
             WriteDefaultValue(elType);
           }
@@ -1367,7 +1433,7 @@ namespace Microsoft.Dafny {
           }
           else {
             IndDatatypeDecl dcl = rc as IndDatatypeDecl;
-            j.WriteValue("EFlat");
+            j.WriteValue(KremlinAst.EFlat);
             using (WriteArray()) { // (lident list of (ident * expr))
               WriteLident(udt);
               using (WriteArray()) {
@@ -1488,7 +1554,7 @@ namespace Microsoft.Dafny {
         WriteToken(stmt.Tok);
         PrintStmt s = (PrintStmt)stmt;
         using (WriteArray()) {
-          j.WriteValue("EApp");
+          j.WriteValue(KremlinAst.EApp);
           j.WriteValue("IO.debug_print_string"); // bugbug: is this the correct way to form the function name?
           using (WriteArray()) {
             foreach (var arg in s.Args) {
@@ -1510,7 +1576,7 @@ namespace Microsoft.Dafny {
         }
         else {
           using (WriteArray()) {
-            j.WriteValue("EReturn");
+            j.WriteValue(KremlinAst.EReturn);
             // Dafny C# generates "return;" because methods are void.  But
             // for Kremlin, if there is one [out] parameter it is translated
             // as a single return value.
@@ -1563,7 +1629,7 @@ namespace Microsoft.Dafny {
 
                 // ELet v in { Stmt 
                 j.WriteStartArray();
-                j.WriteValue("ELet");
+                j.WriteValue(KremlinAst.ELet);
                 j.WriteStartArray();
                 WriteBinder(target, target.CompileName, true); // lident
                 TrRhs(target, null, rhs); // expr
@@ -1573,7 +1639,7 @@ namespace Microsoft.Dafny {
             }
           }
           using (WriteArray()) {
-            j.WriteValue("ESequence");
+            j.WriteValue(KremlinAst.ESequence);
             using (WriteArray()) {
               for (int i = 0; i < rhss.Count; i++) {
                 TrAssign(s.Lhss[i], rhss[i]);
@@ -1623,7 +1689,7 @@ namespace Microsoft.Dafny {
       else if (stmt is BlockStmt) {
         WriteToken(stmt.Tok);
         using (WriteArray()) {
-          j.WriteValue("ESequence");
+          j.WriteValue(KremlinAst.ESequence);
           using (WriteArray()) {
             WriteEUnit(); // in case the statement list is empty
             TrStmtList(((BlockStmt)stmt).Body);
@@ -1648,13 +1714,13 @@ namespace Microsoft.Dafny {
         }
         else {
           using (WriteArray()) {
-            j.WriteValue("EIfThenElse");
+            j.WriteValue(KremlinAst.EIfThenElse);
             using (WriteArray()) {
               TrExpr(s.IsExistentialGuard ? Translator.AlphaRename((ExistsExpr)s.Guard, "eg_d", new Translator(null)) : s.Guard, false);
 
               // We'd like to do "TrStmt(s.Thn, indent)", except we want the scope of any existential variables to come inside the block
               using (WriteArray()) {
-                j.WriteValue("ESequence");
+                j.WriteValue(KremlinAst.ESequence);
                 using (WriteArray()) {
                   WriteEUnit(); // in case the statement list is empty
                   if (s.IsExistentialGuard) {
@@ -1665,7 +1731,7 @@ namespace Microsoft.Dafny {
               }
 
               using (WriteArray()) {
-                j.WriteValue("ESequence");
+                j.WriteValue(KremlinAst.ESequence);
                 using (WriteArray()) {
                   WriteEUnit(); // in case the statement list is empty
                   if (s.Els != null) {
@@ -1695,7 +1761,7 @@ namespace Microsoft.Dafny {
         }
         else {
           using (WriteArray()) {
-            j.WriteValue("EWhile");
+            j.WriteValue(KremlinAst.EWhile);
             using (WriteArray()) {  // of (expr * expr)
               TrExpr(s.Guard, false);
               TrStmt(s.Body);
@@ -1798,13 +1864,13 @@ namespace Microsoft.Dafny {
     // buffer offsets to UInt32
     private void TrBufferIndexSizeExpr(Expression expr, bool isInLetExprBody) {
       using (WriteArray()) {
-        j.WriteValue("ECast");
+        j.WriteValue(KremlinAst.ECast);
         using (WriteArray()) { // of (expr * typ) - cast to UInt32
           TrExpr(expr, isInLetExprBody);
           using (WriteArray()) {
-            j.WriteValue("TInt");
+            j.WriteValue(KremlinAst.TInt);
             using (WriteArray()) {
-              j.WriteValue("UInt32");
+              j.WriteValue(KremlinAst.UInt32);
             }
           }
         }
@@ -1847,7 +1913,7 @@ namespace Microsoft.Dafny {
               WriteEAbort("BUGBUG: TrRhs is a SeqSelectExpr with SelectMany"); // bugbug: is this valid Dafny?
             } else {
               using (WriteArray()) {
-                j.WriteValue("EBufWrite");
+                j.WriteValue(KremlinAst.EBufWrite);
                 using (WriteArray()) { // of (expr * expr * expr)
                   TrExpr(e.Seq, false);    // expr1 - the buffer identifier
                   TrBufferIndexSizeExpr(e.E0, false); // expr2 - the buffer offset
@@ -1858,7 +1924,7 @@ namespace Microsoft.Dafny {
           }
           else if (targetExpr is IdentifierExpr) {
             using (WriteArray()) {
-              j.WriteValue("EAssign");
+              j.WriteValue(KremlinAst.EAssign);
               using (WriteArray()) {
                 var e = (IdentifierExpr)targetExpr;
                 WriteEBound(e.Var);
@@ -1873,12 +1939,12 @@ namespace Microsoft.Dafny {
               WriteEAbort("BUGBUG MemberSelectExpr TrRhs if SpecialField not supported"); // bugbug: implement
             } else {
               using (WriteArray()) {
-                j.WriteValue("EAssign");
+                j.WriteValue(KremlinAst.EAssign);
                 using (WriteArray()) {
                   using (WriteArray()) {
                     // e.Member.CompileName is the field name
                     // e.Obj.Name is the struct name
-                    j.WriteValue("EField");
+                    j.WriteValue(KremlinAst.EField);
                     using (WriteArray()) { // of (lident * expr * ident)
                       WriteLident(e.Obj.Type);
                       TrExpr(e.Obj, false); // This will generate an EBound reference to the variable
@@ -1926,19 +1992,19 @@ namespace Microsoft.Dafny {
         if (OutParam != -1) {
           // easy - one ELet
           j.WriteStartArray();
-          j.WriteValue("EAssign"); // of (expr * expr)
+          j.WriteValue(KremlinAst.EAssign); // of (expr * expr)
           j.WriteStartArray();
           TrExpr(s.Lhs[OutParam], false);
         }
 
         using (WriteArray()) {
-          j.WriteValue("EApp");
+          j.WriteValue(KremlinAst.EApp);
           using (WriteArray()) { // of (expr * expr list)
             // expr1: Function to call
             using (WriteArray()) {
               var old = j.Formatting;
               j.Formatting = Formatting.None;
-              j.WriteValue("EQualified"); // of lident
+              j.WriteValue(KremlinAst.EQualified); // of lident
               if (receiverReplacement != null) {
                 j.WriteComment("receiverReplacement " + receiverReplacement + " is unsupported"); // bugbug: implement
               }
@@ -2002,7 +2068,7 @@ namespace Microsoft.Dafny {
             // Dafny: var W := new uint32[64];
             // C#:    new TypeName[ (int)ParenExpr, ... ];
             using (WriteArray()) {
-              j.WriteValue("EBufCreate");
+              j.WriteValue(KremlinAst.EBufCreate);
               using (WriteArray()) { // of (expr * expr)
                 WriteDefaultValue(tp.EType);
                 TrBufferIndexSizeExpr(tp.ArrayDimensions[0], false);
@@ -2022,7 +2088,7 @@ namespace Microsoft.Dafny {
       List<LocalVariable> AllDecls = new List<LocalVariable>();
 
       using (WriteArray()) {
-        j.WriteValue("ESequence");
+        j.WriteValue(KremlinAst.ESequence);
         using (WriteArray()) {
           WriteEUnit(); // in case the statement list is empty
           foreach (Statement ss in stmts) {
@@ -2054,14 +2120,14 @@ namespace Microsoft.Dafny {
             foreach (var l in decls) {
               // ELet v in { Stmt 
               j.WriteStartArray();
-              j.WriteValue("ELet");
+              j.WriteValue(KremlinAst.ELet);
               j.WriteStartArray();
               WriteBinder(l, l.CompileName, true); // lident
               WriteDefaultValue(l.Type);    // = default
               VarTracker.Push(l);
               // "in" is the contents that follow
               j.WriteStartArray();
-              j.WriteValue("ESequence");
+              j.WriteValue(KremlinAst.ESequence);
               j.WriteStartArray();
               WriteEUnit();
             }
@@ -2119,7 +2185,7 @@ namespace Microsoft.Dafny {
       }
 
       using (WriteArray()) {
-        j.WriteValue("ELet"); // of (binder * expr * expr)  
+        j.WriteValue(KremlinAst.ELet); // of (binder * expr * expr)  
 
         using (WriteArray()) {
           // Binder
@@ -2144,10 +2210,10 @@ namespace Microsoft.Dafny {
       Formatting old = j.Formatting;
       j.Formatting = Formatting.None;
       using (WriteArray()) {
-        j.WriteValue("EConstant");
+        j.WriteValue(KremlinAst.EConstant);
         using (WriteArray()) { // of K.t
           using (WriteArray()) {
-            j.WriteValue("UInt32");
+            j.WriteValue(KremlinAst.UInt32);
           }
           j.WriteValue(value.ToString());
         }
@@ -2162,10 +2228,10 @@ namespace Microsoft.Dafny {
       Formatting old = j.Formatting;
       j.Formatting = Formatting.None;
       using (WriteArray()) {
-        j.WriteValue("EConstant");
+        j.WriteValue(KremlinAst.EConstant);
         using (WriteArray()) { // of K.t
           using (WriteArray()) {
-            j.WriteValue("Int32");
+            j.WriteValue(KremlinAst.Int32);
           }
           j.WriteValue(value.ToString());
         }
@@ -2180,11 +2246,11 @@ namespace Microsoft.Dafny {
       // ELet tmpVar1 = let tmpVar2 = EBufCreateL (list of initializers)  in _ in tmpVar1;
       var tmpVar1 = new BoundVar(expr[0].tok, idGenerator.FreshId("_seq"), seqType);
       using (WriteArray()) {
-        j.WriteValue("ELet");
+        j.WriteValue(KremlinAst.ELet);
         using (WriteArray()) { // of (binder * expr * expr)
           WriteBinder(tmpVar1, tmpVar1.CompileName, false); // binder
           using (WriteArray()) {  // expr1
-            j.WriteValue("EBufCreateL"); // of expr list
+            j.WriteValue(KremlinAst.EBufCreateL); // of expr list
             using (WriteArray()) {
               for (int i = 0; i < expr.Count; ++i) {
                 TrExpr(expr[i], inLetExprBody);
@@ -2214,7 +2280,7 @@ namespace Microsoft.Dafny {
       if (lhs is IdentifierExpr) {
         var ll = (IdentifierExpr)lhs;
         using (WriteArray()) {
-          j.WriteValue("EAssign");
+          j.WriteValue(KremlinAst.EAssign);
           using (WriteArray()) { // (expr * expr)
             WriteEBound(ll.Var);
             WriteEBound(rhs);
@@ -2224,7 +2290,7 @@ namespace Microsoft.Dafny {
       else if (lhs is MemberSelectExpr) {
         var ll = (MemberSelectExpr)lhs;
         using (WriteArray()) {
-          j.WriteValue("EAssign");
+          j.WriteValue(KremlinAst.EAssign);
           using (WriteArray()) { // (expr * expr)
             TrMemberSelectExpr(ll);
             WriteEBound(rhs);
@@ -2245,7 +2311,7 @@ namespace Microsoft.Dafny {
       Contract.Assert(e.Seq.Type != null);
       // rhs may be null, meaning the SeqSelect is on the lhs
 
-      string KremlinOp = (rhs == null) ? "EBufRead" : "EBufWrite";
+      string KremlinOp = (rhs == null) ? KremlinAst.EBufRead : KremlinAst.EBufWrite;
 
       if (e.Seq.Type.IsArrayType) {
         if (e.SelectOne) {
@@ -2297,7 +2363,7 @@ namespace Microsoft.Dafny {
         using (WriteArray()) {
           // e.Member.CompileName is the field name
           // e.Obj.Name is the struct name
-          j.WriteValue("EField");
+          j.WriteValue(KremlinAst.EField);
           using (WriteArray()) { // of (lident * expr * ident)
             WriteLident(e.Obj.Type);
             TrExpr(e.Obj, false); // This will generate an EBound reference to the variable
@@ -2318,11 +2384,7 @@ namespace Microsoft.Dafny {
         if (e is StaticReceiverExpr) {
           // bugbug: Kremlin doesn't support a type name as an expression
           using (WriteArray()) {
-            j.WriteComment("BUGBUG TrExpr - type name not supported by Kremlin as an expression");
-            j.WriteValue("EType");
-            using (WriteArray()) {
-              WriteTypeName(e.Type);
-            }
+            WriteEAbort("BUGBUG TrExpr - type name not supported by Kremlin as an expression");
           }
         }
         else if (e.Value == null) {
@@ -2331,7 +2393,7 @@ namespace Microsoft.Dafny {
         }
         else if (e.Value is bool) {
           using (WriteArray()) {
-            j.WriteValue("EBool");
+            j.WriteValue(KremlinAst.EBool);
             j.WriteValue((bool)e.Value);
           }
         }
@@ -2339,7 +2401,7 @@ namespace Microsoft.Dafny {
           Formatting old = j.Formatting;
           j.Formatting = Formatting.None;
           using (WriteArray()) {
-            j.WriteValue("EConstant"); // of K.t
+            j.WriteValue(KremlinAst.EConstant); // of K.t
             using (WriteArray()) { // [type], value
               using (WriteArray()) {
                 j.WriteValue("String"); // bugbug: what is the correct Kremlin type for a string?
@@ -2354,7 +2416,7 @@ namespace Microsoft.Dafny {
           Formatting old = j.Formatting;
           j.Formatting = Formatting.None;
           using (WriteArray()) {
-            j.WriteValue("EConstant"); // of K.t
+            j.WriteValue(KremlinAst.EConstant); // of K.t
             using (WriteArray()) { // [type], value
               using (WriteArray()) {
                 j.WriteValue("String"); // bugbug: what is the correct Kremlin type for a string?
@@ -2371,7 +2433,7 @@ namespace Microsoft.Dafny {
           Formatting old = j.Formatting;
           j.Formatting = Formatting.None;
           using (WriteArray()) {
-            j.WriteValue("EConstant");
+            j.WriteValue(KremlinAst.EConstant);
             using (WriteArray()) {
               using (WriteArray()) {
                 j.WriteValue(nt.KremlinType());
@@ -2383,7 +2445,7 @@ namespace Microsoft.Dafny {
         }
         else if (e.Value is BigInteger) {
           BigInteger i = (BigInteger)e.Value;
-          string KremlinType = "TUnit";
+          string KremlinType = KremlinAst.TUnit;
           string Value = "";
           if (new BigInteger(ulong.MinValue) <= i && i <= new BigInteger(ulong.MaxValue)) {
             KremlinType = "UInt64";
@@ -2400,7 +2462,7 @@ namespace Microsoft.Dafny {
           Formatting old = j.Formatting;
           j.Formatting = Formatting.None;
           using (WriteArray()) {
-            j.WriteValue("EConstant");
+            j.WriteValue(KremlinAst.EConstant);
             using (WriteArray()) {
               using (WriteArray()) {
                 j.WriteValue(KremlinType);
@@ -2484,13 +2546,13 @@ namespace Microsoft.Dafny {
         else {
           j.WriteComment("DatatypeValue");
           using (WriteArray()) {
-            j.WriteValue("EApp");
+            j.WriteValue(KremlinAst.EApp);
             using (WriteArray()) { // of (expr * expr list)
               // expr1: Function to call
               using (WriteArray()) {
                 var old = j.Formatting;
                 j.Formatting = Formatting.None;
-                j.WriteValue("EQualified");
+                j.WriteValue(KremlinAst.EQualified);
                 WriteLident(dtv.Ctor.FullName);
                 j.Formatting = old;
               }
@@ -2516,7 +2578,7 @@ namespace Microsoft.Dafny {
       else if (expr is ConversionExpr) {
         var e = (ConversionExpr)expr;
         using (WriteArray()) {
-          j.WriteValue("ECast"); // of (expr * typ)
+          j.WriteValue(KremlinAst.ECast); // of (expr * typ)
           using (WriteArray()) {
             // e.E is the source, a UnaryExpression
             // e.ToType is the new type, a Type
@@ -2532,12 +2594,12 @@ namespace Microsoft.Dafny {
         // EApp[ [EOp ["Bopname"], ["UInt32"]], expr1, expr2)
         BinaryExpr e = (BinaryExpr)expr;
         using (WriteArray()) {
-          j.WriteValue("EApp"); // of (expr * expr list)
+          j.WriteValue(KremlinAst.EApp); // of (expr * expr list)
           using (WriteArray()) {
             using (WriteArray()) {
               Formatting old = j.Formatting;
               j.Formatting = Formatting.None;
-              j.WriteValue("EOp"); // of (K.op * K.width)
+              j.WriteValue(KremlinAst.EOp); // of (K.op * K.width)
               using (WriteArray()) {
                 using (WriteArray()) {
                   switch (e.ResolvedOp) {
@@ -2694,13 +2756,13 @@ namespace Microsoft.Dafny {
       }
 
       using (WriteArray()) {
-        j.WriteValue("EApp"); // of (expr * expr list)
+        j.WriteValue(KremlinAst.EApp); // of (expr * expr list)
         using (WriteArray()) {
           // expr1: Function to call
           using (WriteArray()) {
             var old = j.Formatting;
             j.Formatting = Formatting.None;
-            j.WriteValue("EQualified");
+            j.WriteValue(KremlinAst.EQualified);
             WriteLident(f);
             j.Formatting = old;
           }
