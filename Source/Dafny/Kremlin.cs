@@ -250,7 +250,8 @@ namespace Microsoft.Dafny {
         // v9 = DTypeFloat/EFlat/EField
         // v10 = change to EOpen
         // v11 = removed type from EIfThenElse, removed lident from EFlat and EField.  Binder change.
-        j.WriteRawValue("11"); // binary_format = version * file list
+        // v12 = DTypeFlat supports mutable fields
+        j.WriteRawValue("12"); // binary_format = version * file list
         using (WriteArray()) { // start of file list
 
           // bugbug: generate builtins as needed
@@ -420,9 +421,12 @@ namespace Microsoft.Dafny {
                 }
                 Formatting old = j.Formatting;
                 j.Formatting = Formatting.None;
-                using (WriteArray()) { // (ident * typ)
+                using (WriteArray()) { // (ident * (typ * bool))
                   j.WriteValue(FormalName(arg, i));
-                  WriteTypeName(arg.Type); // bugbug: for buffer/array types, how should this specify the length?
+                  using (WriteArray()) {
+                    WriteTypeName(arg.Type); // bugbug: for buffer/array types, how should this specify the length?
+                    j.WriteValue(true); // mutable
+                  }
                   i++;
                   j.Formatting = old;
                 }
@@ -549,7 +553,7 @@ namespace Microsoft.Dafny {
       Contract.Requires(c != null);
 
       using (WriteArray()) {
-        j.WriteValue("DTypeFlat"); // of (lident * (ident * typ) list)
+        j.WriteValue("DTypeFlat"); // of (lident * (ident * (typ * bool)) list)
         using (WriteArray()) {
           WriteLident(c.FullCompileName);
           using (WriteArray()) { // list
@@ -559,9 +563,12 @@ namespace Microsoft.Dafny {
               using (WriteArray()) {
                 if (member is Field) {
                   var f = (Field)member;
-                  using (WriteArray()) { // (ident * typ)
+                  using (WriteArray()) { // (ident * (typ * bool))
                     j.WriteValue(f.CompileName);
-                    WriteTypeName(f.Type);
+                    using (WriteArray()) {
+                      WriteTypeName(f.Type);
+                      j.WriteValue(true); // mutable
+                    }
                   }
                 }
               }
@@ -578,9 +585,12 @@ namespace Microsoft.Dafny {
                   j.WriteComment("BUGBUG TraitDecl not supported: " + f.CompileName); // bugbug: implement
                 }
                 else {
-                  using (WriteArray()) { // (ident * typ)
+                  using (WriteArray()) { // (ident * (typ * bool))
                     j.WriteValue(f.CompileName);
-                    WriteTypeName(f.Type);
+                    using (WriteArray()) {
+                      WriteTypeName(f.Type);
+                      j.WriteValue(true);
+                    }
                   }
                 }
               }
@@ -2188,6 +2198,7 @@ namespace Microsoft.Dafny {
           }
           VarTracker.Push(tmpVar1);
           WriteEBound(tmpVar1); // expr2
+          VarTracker.Pop(tmpVar1);
         }
       }
     }
