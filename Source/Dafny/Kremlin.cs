@@ -1872,27 +1872,22 @@ namespace Microsoft.Dafny {
             if (sf != null) {
               WriteEAbort("BUGBUG MemberSelectExpr TrRhs if SpecialField not supported"); // bugbug: implement
             } else {
-#if true
-              // Dafny source, in sha256_main.i.dfy:
-              //         ctx.num_total_bytes := ctx.num_total_bytes + num_block_bytes;
-              WriteEAbort("BUGBUG: mutation of a field in a UDT is not supported"); // bugbug: implement
-#else
               using (WriteArray()) {
                 j.WriteValue("EAssign");
                 using (WriteArray()) {
-                using (WriteArray()) {
-                  // e.Member.CompileName is the field name
-                  // e.Obj.Name is the struct name
-                  j.WriteValue("EField");
-                  using (WriteArray()) { // of (lident * expr * ident)
-                    WriteLident(e.Obj.Type);
-                    TrExpr(e.Obj, false); // This will generate an EBound reference to the variable
-                    j.WriteValue(e.Member.CompileName);
+                  using (WriteArray()) {
+                    // e.Member.CompileName is the field name
+                    // e.Obj.Name is the struct name
+                    j.WriteValue("EField");
+                    using (WriteArray()) { // of (lident * expr * ident)
+                      WriteLident(e.Obj.Type);
+                      TrExpr(e.Obj, false); // This will generate an EBound reference to the variable
+                      j.WriteValue(e.Member.CompileName);
+                    }
                   }
+                  TrAssignmentRhs(rhs);
                 }
-                TrAssignmentRhs(rhs);
               }
-#endif
             }
           }
           else {
