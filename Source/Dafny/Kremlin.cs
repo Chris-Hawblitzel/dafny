@@ -323,95 +323,130 @@ namespace Microsoft.Dafny {
           // bugbug: generate builtins as needed
           //CompileBuiltIns(program.BuiltIns);
 
+          // Compile non-default modules before modules, so type declarations are ready
+          // ahead of the default module.  Note the type dependencies between other
+          // modules is not currently supported by Kremlin and will result in compile
+          // time errors at the C level.
+          ModuleDefinition DefaultModule = null;
           foreach (ModuleDefinition m in program.CompileModules) {
-            if (m.IsAbstract) {
-              // the purpose of an abstract module is to skip compilation
-              continue;
+            if (m.IsDefaultModule) {
+              DefaultModule = m;
             }
-            string ModuleName = DafnyDefaultModuleName;
-            if (!m.IsDefaultModule) {
-              var m_prime = m;
-              while (DafnyOptions.O.IronDafny && m_prime.ClonedFrom != null) {
-                m_prime = m.ClonedFrom;
-              }
-              ModuleName = m_prime.CompileName;
+            else {
+              CompileModule(m, wr);
             }
-
-            // A Module is translated as a file:  string * program
-            using (WriteArray()) { // start of file
-              j.WriteValue(ModuleName);
-              using (WriteArray()) { // start of program array
-
-                foreach (TopLevelDecl d in m.TopLevelDecls) {
-                  bool compileIt = true;
-                  if (Attributes.ContainsBool(d.Attributes, "compile", ref compileIt) && !compileIt) {
-                    continue;
-                  }
-                  if (d is OpaqueTypeDecl) {
-                    var at = (OpaqueTypeDecl)d;
-                    WriteToken(d.tok);
-                    Error("Opaque type ('{0}') cannot be compiled", wr, at.FullName);
-                  }
-                  else if (d is TypeSynonymDecl) {
-                    // do nothing, just bypass type synonyms in the compiler
-                  }
-                  else if (d is NewtypeDecl) {
-                    var nt = (NewtypeDecl)d;
-                    WriteToken(d.tok);
-                    if (nt.CompileName == "uint64" ||
-                        nt.CompileName == "uint32" ||
-                        nt.CompileName == "byte") {
-                      // Skip SHA256 types.s.dfy definitions of native types.  They are unused, but
-                      // are defined in terms of BigInteger, which Kremlin does not support.
-                      j.WriteComment("Skipping types.s.dfy definition of " + nt.CompileName);
-                      continue;
-                    }
-                    using (WriteArray()) {
-                      j.WriteValue(KremlinAst.DTypeAlias);
-                      using (WriteArray()) { //  (lident * typ)
-                        WriteLident(nt.FullCompileName);
-                        WriteTypeName(nt.BaseType);
-                      }
-                    }
-                  }
-                  else if (d is DatatypeDecl) {
-                    var dt = (DatatypeDecl)d;
-                    WriteToken(d.tok);
-                    if (dt.TypeArgs.Count != 0) {
-                      // system.tuple2<> in sha256 is an example, but unused.
-                      j.WriteComment("WARNING: DatatypeDecl of parameterized type not supported"); // bugbug: implement.  
-                    }
-                    else {
-                      CompileDatatypeConstructors(dt);
-                      CompileDatatypeStruct(dt);
-                    }
-                  }
-                  else if (d is IteratorDecl) {
-                    var iter = (IteratorDecl)d;
-                    WriteToken(d.tok);
-                    j.WriteComment("BUGBUG IteratorDecl ignored: " + iter.CompileName); // bugbug: implement
-                  }
-                  else if (d is TraitDecl) {
-                    var trait = (TraitDecl)d;
-                    WriteToken(d.tok);
-                    j.WriteComment("BUGBUG TraitDecl ignored: " + trait.CompileName); // bugbug: implement
-                  }
-                  else if (d is ClassDecl) {
-                    var cl = (ClassDecl)d;
-                    CompileClassMembers(cl);
-                  }
-                  else if (d is ModuleDecl) {
-                    // nop
-                  }
-                  else { Contract.Assert(false); }
-                }
-              }
-            } // End of file
           }
-
+          if (DefaultModule != null) {
+            CompileModule(DefaultModule, wr);
+          }
         } // End of file list
       } // End of entire contents
       j.Close();
+    }
+
+    void CompileModule(ModuleDefinition m, TextWriter wr) {
+      Contract.Requires(m != null);
+
+      if (m.IsAbstract) {
+        // the purpose of an abstract module is to skip compilation
+        return;
+      }
+
+      string ModuleName = DafnyDefaultModuleName;
+      if (!m.IsDefaultModule) {
+        var m_prime = m;
+        while (DafnyOptions.O.IronDafny && m_prime.ClonedFrom != null) {
+          m_prime = m.ClonedFrom;
+        }
+        ModuleName = m_prime.CompileName;
+      }
+
+      // A Module is translated as a file:  string * program
+      using (WriteArray()) { // start of file
+        j.WriteValue(ModuleName);
+        using (WriteArray()) { // start of program array
+
+          TopLevelDecl DefaultClass = null;
+          foreach (TopLevelDecl d in m.TopLevelDecls) {
+            if ((d is ClassDecl) && (d as ClassDecl).IsDefaultClass) {
+              DefaultClass = d;
+            } else {
+            CompileTypeLevelDecl(d, wr);
+            }
+          }
+          if (DefaultClass != null) {
+            CompileTypeLevelDecl(DefaultClass, wr);
+          }
+        }
+      } // End of file
+    }
+
+    void CompileTypeLevelDecl(TopLevelDecl d, TextWriter wr) {
+      Contract.Requires(d != null);
+
+      bool compileIt = true;
+      if (Attributes.ContainsBool(d.Attributes, "compile", ref compileIt) && !compileIt) {
+        return;
+      }
+      if (d is OpaqueTypeDecl) {
+        var at = (OpaqueTypeDecl)d;
+        WriteToken(d.tok);
+        Error("Opaque type ('{0}') cannot be compiled", wr, at.FullName);
+      }
+      else if (d is TypeSynonymDecl) {
+        // do nothing, just bypass type synonyms in the compiler
+      }
+      else if (d is NewtypeDecl) {
+        var nt = (NewtypeDecl)d;
+        WriteToken(d.tok);
+        if (nt.CompileName == "uint64" ||
+            nt.CompileName == "uint32" ||
+            nt.CompileName == "byte") {
+          // Skip SHA256 types.s.dfy definitions of native types.  They are unused, but
+          // are defined in terms of BigInteger, which Kremlin does not support.
+          j.WriteComment("Skipping types.s.dfy definition of " + nt.CompileName);
+          return;
+        }
+        using (WriteArray()) {
+          j.WriteValue(KremlinAst.DTypeAlias);
+          using (WriteArray()) { //  (lident * typ)
+            WriteLident(nt.FullCompileName);
+            WriteTypeName(nt.BaseType);
+          }
+        }
+      }
+      else if (d is DatatypeDecl) {
+        var dt = (DatatypeDecl)d;
+        WriteToken(d.tok);
+        if (dt.TypeArgs.Count != 0) {
+          // system.tuple2<> in sha256 is an example, but unused.
+          j.WriteComment("WARNING: DatatypeDecl of parameterized type not supported"); // bugbug: implement.  
+        }
+        else {
+          // Define the type
+          CompileDatatypeStruct(dt);
+          // Generate constructor functions for that type
+          CompileDatatypeConstructors(dt);
+        }
+      }
+      else if (d is IteratorDecl) {
+        var iter = (IteratorDecl)d;
+        WriteToken(d.tok);
+        j.WriteComment("BUGBUG IteratorDecl ignored: " + iter.CompileName); // bugbug: implement
+      }
+      else if (d is TraitDecl) {
+        var trait = (TraitDecl)d;
+        WriteToken(d.tok);
+        j.WriteComment("BUGBUG TraitDecl ignored: " + trait.CompileName); // bugbug: implement
+      }
+      else if (d is ClassDecl) {
+        var cl = (ClassDecl)d;
+        CompileClassMembers(cl);
+      }
+      else if (d is ModuleDecl) {
+        // nop
+      }
+      else { Contract.Assert(false); }
     }
 
     void CompileDatatypeConstructors(DatatypeDecl dt) {
