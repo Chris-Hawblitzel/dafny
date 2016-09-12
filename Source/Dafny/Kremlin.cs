@@ -884,6 +884,7 @@ namespace Microsoft.Dafny {
             j.WriteValue(KremlinAst.ESequence);
             using (WriteArray()) {
               List<Formal> Outs = new List<Formal>(m.Outs);
+              WriteEPushFrame();
               foreach (Formal p in Outs) { // bugbug: this now needs to be hoisted out and made recursive
                 if (!p.IsGhost) {
                   // ELet v in { Stmt 
@@ -900,7 +901,6 @@ namespace Microsoft.Dafny {
                   WriteEUnit();
                 }
               }
-              WriteEPushFrame();
               if (m.Body == null) {
                 Error("Method {0} has no body", m.FullName);
               } else {
