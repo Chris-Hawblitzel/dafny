@@ -358,6 +358,14 @@ namespace Microsoft.Dafny {
                   else if (d is NewtypeDecl) {
                     var nt = (NewtypeDecl)d;
                     WriteToken(d.tok);
+                    if (nt.CompileName == "uint64" ||
+                        nt.CompileName == "uint32" ||
+                        nt.CompileName == "byte") {
+                      // Skip SHA256 types.s.dfy definitions of native types.  They are unused, but
+                      // are defined in terms of BigInteger, which Kremlin does not support.
+                      j.WriteComment("Skipping types.s.dfy definition of " + nt.CompileName);
+                      continue;
+                    }
                     using (WriteArray()) {
                       j.WriteValue(KremlinAst.DTypeAlias);
                       using (WriteArray()) { //  (lident * typ)
@@ -475,6 +483,7 @@ namespace Microsoft.Dafny {
       Contract.Requires(dt != null);
 
       foreach (DatatypeCtor ctor in dt.Ctors) {
+        WriteToken(ctor.tok);
         using (WriteArray()) {
           j.WriteValue(KremlinAst.DTypeFlat); // of (lident * (ident * typ) list)
           using (WriteArray()) {
@@ -615,8 +624,29 @@ namespace Microsoft.Dafny {
       }
     }
 
-    void WriteClassStruct(ClassDecl c, bool forCompanionClass) {
+    bool WriteClassStruct(ClassDecl c, bool forCompanionClass) {
       Contract.Requires(c != null);
+
+      // Don't write out a struct with no members, as it isn't valid C
+      if (c.InheritedMembers.Count == 0) {
+        bool HasNoMembers = true;
+        foreach (MemberDecl member in c.Members) {
+          if (member is Field) {
+            var f = (Field)member;
+            if (f.IsGhost || forCompanionClass) {
+              // emit nothing
+            }
+            else {
+              HasNoMembers = false;
+              break;
+            }
+          }
+        }
+        if (HasNoMembers) {
+          j.WriteComment("Not writing class struct " + c.FullCompileName + " as it has no non-ghost members");
+          return false;
+        }
+      }
 
       using (WriteArray()) {
         j.WriteValue(KremlinAst.DTypeFlat); // of (lident * (ident * (typ * bool)) list)
@@ -664,6 +694,8 @@ namespace Microsoft.Dafny {
           }
         }
       }
+
+      return true;
     }
 
     void CompileClassMembers(ClassDecl c) {
@@ -679,7 +711,23 @@ namespace Microsoft.Dafny {
       bool forCompanionClass = false; // bugbug: implement
 
       // Generate the DTypeFlat struct representing the class
-      WriteClassStruct(c, forCompanionClass);
+      if (!WriteClassStruct(c, forCompanionClass)) {
+        // No class struct was written because it has no non-ghost members
+        foreach (var member in c.InheritedMembers) {
+          Contract.Assert(!member.IsGhost && !member.IsStatic);  // only non-ghost instance members should ever be added to .InheritedMembers
+        }
+        bool HasNoMembers = true;
+        foreach (MemberDecl member in c.Members) {
+          if (!(member is Field) && !member.IsGhost) {
+            HasNoMembers = false;
+            break;
+          }
+        }
+        if (HasNoMembers) {
+          // Skip the class if it is entirely ghost
+          return;
+        }
+      }
       UserDefinedType thisType = UserDefinedType.FromTopLevelDecl(c.tok, c);
 
       foreach (var member in c.InheritedMembers) {
