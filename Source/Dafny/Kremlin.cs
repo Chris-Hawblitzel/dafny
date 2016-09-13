@@ -1403,11 +1403,11 @@ namespace Microsoft.Dafny {
           }
           else {
             for (int i = 0; i < names.Length - 1; ++i) {
-              j.WriteValue(names[i]);
+              j.WriteValue(RemoveCSharpPrefix(names[i]));
             }
           }
         }
-        j.WriteValue(names[names.Length - 1]);
+        j.WriteValue(RemoveCSharpPrefix(names[names.Length - 1]));
       }
     }
 
