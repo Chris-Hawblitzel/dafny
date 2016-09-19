@@ -323,22 +323,19 @@ namespace Microsoft.Dafny {
           // bugbug: generate builtins as needed
           //CompileBuiltIns(program.BuiltIns);
 
-          // Compile non-default modules before modules, so type declarations are ready
-          // ahead of the default module.  Note the type dependencies between other
-          // modules is not currently supported by Kremlin and will result in compile
-          // time errors at the C level.
-          ModuleDefinition DefaultModule = null;
-          foreach (ModuleDefinition m in program.CompileModules) {
-            if (m.IsDefaultModule) {
-              DefaultModule = m;
-            }
-            else {
-              CompileModule(m, wr);
-            }
+          // Compile modules in order by height (program.Modules is sorted this way but in
+          // reverse order). Compile SystemModule last, as it has height -1 and is not in 
+          // the .Modules list.
+          List<ModuleDefinition> sortedModules = new List<ModuleDefinition>(program.Modules);
+          sortedModules.Reverse();
+
+          ModuleDefinition previousModule = program.BuiltIns.SystemModule;
+          foreach (ModuleDefinition m in sortedModules) {
+            Contract.Assert(m.Height > previousModule.Height); // .Modules is sorted
+            CompileModule(m, wr);
           }
-          if (DefaultModule != null) {
-            CompileModule(DefaultModule, wr);
-          }
+          CompileModule(program.BuiltIns.SystemModule, wr);
+
         } // End of file list
       } // End of entire contents
       j.Close();
