@@ -329,10 +329,11 @@ namespace Microsoft.Dafny {
           List<ModuleDefinition> sortedModules = new List<ModuleDefinition>(program.Modules);
           sortedModules.Reverse();
 
-          ModuleDefinition previousModule = program.BuiltIns.SystemModule;
+          int previousHeight = sortedModules[0].Height+1;
           foreach (ModuleDefinition m in sortedModules) {
-            Contract.Assert(m.Height > previousModule.Height); // .Modules is sorted
+            Contract.Assert(m.Height < previousHeight); // .Modules is sorted
             CompileModule(m, wr);
+            previousHeight = m.Height;
           }
           CompileModule(program.BuiltIns.SystemModule, wr);
 
