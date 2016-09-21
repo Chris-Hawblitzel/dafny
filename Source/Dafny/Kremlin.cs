@@ -94,7 +94,8 @@ namespace Microsoft.Dafny {
       public const string DFunction = "DFunction";
       public const string DTypeAlias = "DTypeAlias";
       public const string DGlobal = "DGlobal";
-      public const string DTypeFlat = "DTypeFlat";  
+      public const string DTypeFlat = "DTypeFlat";
+      public const string DExternal = "DExternal";
 
       // InputAst.typ
       public const string TInt = "TInt";                  // of K.width
@@ -356,7 +357,7 @@ namespace Microsoft.Dafny {
         while (DafnyOptions.O.IronDafny && m_prime.ClonedFrom != null) {
           m_prime = m.ClonedFrom;
         }
-        ModuleName = m_prime.CompileName;
+        ModuleName = m_prime.Name;
       }
 
       // A Module is translated as a file:  string * program
@@ -408,7 +409,7 @@ namespace Microsoft.Dafny {
         using (WriteArray()) {
           j.WriteValue(KremlinAst.DTypeAlias);
           using (WriteArray()) { //  (lident * typ)
-            WriteLident(nt.FullCompileName);
+            WriteLident(nt.FullName);
             WriteTypeName(nt.BaseType);
           }
         }
@@ -505,7 +506,7 @@ namespace Microsoft.Dafny {
                                 using (WriteArray()) {  // of (lident * expr * ident)
                                   WriteLident(pThis.Type); // lident
                                   WriteEBound(pThis);
-                                  j.WriteValue(arg.CompileName);
+                                  j.WriteValue(arg.Name);
                                 }
                               }
                               // Second expr: // EBound of formal
@@ -536,7 +537,7 @@ namespace Microsoft.Dafny {
         using (WriteArray()) {
           j.WriteValue(KremlinAst.DTypeFlat); // of (lident * (ident * typ) list)
           using (WriteArray()) {
-            WriteLident(dt.FullCompileName); // lident
+            WriteLident(dt.FullName); // lident
             using (WriteArray()) { // list
               int i = 0;
               foreach (Formal arg in ctor.Formals) {
@@ -608,7 +609,7 @@ namespace Microsoft.Dafny {
       Contract.Requires(formal != null);
       Contract.Ensures(Contract.Result<string>() != null);
 
-      return formal.HasName ? formal.CompileName : "_a" + i;
+      return formal.HasName ? formal.Name : "_a" + i;
     }
 
     public bool HasMain(Program program) {
@@ -700,7 +701,7 @@ namespace Microsoft.Dafny {
       using (WriteArray()) {
         j.WriteValue(KremlinAst.DTypeFlat); // of (lident * (ident * (typ * bool)) list)
         using (WriteArray()) {
-          WriteLident(c.FullCompileName);
+          WriteLident(c.FullName);
           using (WriteArray()) { // list
             foreach (var member in c.InheritedMembers) {
               Contract.Assert(!member.IsGhost && !member.IsStatic);  // only non-ghost instance members should ever be added to .InheritedMembers
@@ -709,7 +710,7 @@ namespace Microsoft.Dafny {
                 if (member is Field) {
                   var f = (Field)member;
                   using (WriteArray()) { // (ident * (typ * bool))
-                    j.WriteValue(f.CompileName);
+                    j.WriteValue(f.Name);
                     using (WriteArray()) {
                       WriteTypeName(f.Type);
                       j.WriteValue(true); // mutable
@@ -731,7 +732,7 @@ namespace Microsoft.Dafny {
                 }
                 else {
                   using (WriteArray()) { // (ident * (typ * bool))
-                    j.WriteValue(f.CompileName);
+                    j.WriteValue(f.Name);
                     using (WriteArray()) {
                       WriteTypeName(f.Type);
                       j.WriteValue(true);
@@ -812,7 +813,7 @@ namespace Microsoft.Dafny {
             if (forCompanionClass || Attributes.Contains(f.Attributes, "axiom")) {
               // suppress error message (in the case of "forCompanionClass", the non-forCompanionClass call will produce the error message)
             } else {
-              Error("Function {0} has no body", f.FullName);
+              CompileExternalFunction(f);
             }
           } else if (f.IsGhost) {
             // nothing to compile, but we do check for assumes
@@ -843,7 +844,7 @@ namespace Microsoft.Dafny {
             if (forCompanionClass || Attributes.Contains(m.Attributes, "axiom")) {
               // suppress error message (in the case of "forCompanionClass", the non-forCompanionClass call will produce the error message)
             } else {
-              Error("Method {0} has no body", m.FullName);
+              CompileExternalMethod(c, m);
             }
           } else if (m.IsGhost) {
             // nothing to compile, but we do check for assumes
@@ -872,54 +873,69 @@ namespace Microsoft.Dafny {
       }
     }
 
-    // Remove the leading '@' from identifier names.  C# uses this to 
-    // disambiguate identifiers from keywords.  Kremlin does not
-    // need this.
-    string RemoveCSharpPrefix(string n) {
-      if (n[0] == '@') {
-        return n.Substring(1);
-      }
-      return n;
-    }
-
-    private void WriteLident(string FullCompileName) {
-      string[] names = FullCompileName.Split('.');
+    private void WriteLident(string FullName) {
+      string[] names = FullName.Split('.');
       using (WriteArray()) {
         using (WriteArray()) {
           if (names.Length == 1) {
             j.WriteValue(DafnyDefaultModuleName);
           }
           else {
+            if (names[0] == "_module") { // See DefaultModuleDecl in DafnyAst.cs
+              names[0] = DafnyDefaultModuleName;
+            }
             for (int i = 0; i < names.Length - 1; ++i) {
-              j.WriteValue(RemoveCSharpPrefix(names[i]));
+              j.WriteValue(names[i]);
             }
           }
         }
-        j.WriteValue(RemoveCSharpPrefix(names[names.Length - 1]));
+        j.WriteValue(names[names.Length - 1]);
       }
     }
 
     private void WriteLident(MemberDecl d) {
-      WriteLident(d.FullCompileName);
+      WriteLident(d.FullName);
     }
 
     private void WriteLident(Type t) {
       if (t is UserDefinedType) {
         var udt = (UserDefinedType)t;
-        WriteLident(udt.FullCompileName);
+        WriteLident(udt.FullName);
       }
       else {
         j.WriteComment("bugbug: WriteLident of unknown type " + t.ToString()); // bugbug: implement
       }
     }
 
-    private void CompileFunction(Function f) {
-      VarTracker.Clear(); // bugbug: what about global variables?
+    // Compile a function with no body
+    private void CompileExternalFunction(Function f) {
+      Contract.Assert(f != null);
+      Contract.Assert(f.Body == null);
 
-      //if (f.FullCompileName == "_23_words__and__bytes__s_Compile.@__default.@Uint64ToBytes") {
-      //  j.WriteComment("BUGBUG: Uint64ToBytes ignored due to type mismatch problem");
-      //  return;
-      //}
+      VarTracker.Clear();
+
+#if false // bugbug: Kremlin DExternal (of lident * typ) cannot express argument types yet
+      if (f.TypeArgs.Count != 0) {
+        // Template expansion isn't supported
+        j.WriteComment("BUGBUG: Type args not supported:  omitting function " + f.FullCompileName);
+        return;
+      }
+
+      using (WriteArray()) {
+        j.WriteValue(KremlinAst.DExternal);
+        using (WriteArray()) { // of (lident * typ)
+          WriteLident(f); // lident
+          WriteTypeName(f.ResultType); // typ
+        }
+      }
+#endif
+    }
+
+    private void CompileFunction(Function f) {
+      Contract.Assert(f != null);
+      Contract.Assert(f.Body != null);
+
+      VarTracker.Clear();
 
       if (f.TypeArgs.Count != 0) {
         // Template expansion isn't supported
@@ -944,6 +960,8 @@ namespace Microsoft.Dafny {
     }
 
     void WriteMethodReturnType(List<Formal> Outs) {
+      Contract.Requires(Outs != null);
+
       int i = 0;
       foreach (Formal arg in Outs) {
         if (arg.IsGhost) {
@@ -957,8 +975,41 @@ namespace Microsoft.Dafny {
       }
     }
 
+    // Compile a method with no body
+    private void CompileExternalMethod(ClassDecl c, Method m) {
+      Contract.Assert(c != null);
+      Contract.Assert(m != null);
+      Contract.Assert(m.Body == null);
+
+      VarTracker.Clear();
+
+#if false // bugbug: Kremlin DExternal (of lident * typ) cannot express argument types yet
+
+      if (m.TypeArgs.Count != 0) {
+        // Template expansion isn't supported
+        j.WriteComment("BUGBUG: Type args not supported:  omitting method " + m.FullCompileName);
+        return;
+      }
+
+      UserDefinedType thisType = UserDefinedType.FromTopLevelDecl(c.tok, c);
+      var pThis = new BoundVar(c.tok, ThisName, thisType);
+
+      using (WriteArray()) {
+        j.WriteValue(KremlinAst.DExternal);
+        using (WriteArray()) { // of (lident * typ)
+          WriteLident(m); // lident
+          WriteMethodReturnType(m.Outs); // typ
+        }
+      }
+#endif
+    }
+
     private void CompileMethod(ClassDecl c, Method m) {
-      VarTracker.Clear(); // bugbug: what about global variables?
+      Contract.Assert(c != null);
+      Contract.Assert(m != null);
+      Contract.Assert(m.Body != null);
+
+      VarTracker.Clear();
 
       if (m.TypeArgs.Count != 0) {
         // Template expansion isn't supported
@@ -988,7 +1039,7 @@ namespace Microsoft.Dafny {
                   j.WriteStartArray();
                   j.WriteValue(KremlinAst.ELet);
                   j.WriteStartArray();
-                  WriteBinder(p, p.CompileName, true); // lident
+                  WriteBinder(p, p.Name, true); // lident
                   WriteDefaultValue(p.Type);    // = default
                   VarTracker.Push(p);
                   // "in" is the contents that follow
@@ -998,20 +1049,16 @@ namespace Microsoft.Dafny {
                   WriteEUnit();
                 }
               }
-              if (m.Body == null) {
-                Error("Method {0} has no body", m.FullName);
-              } else {
-                if (m.IsTailRecursive) {
-                  // Note that Dafny conservatively flags functions as possibly-tail-recursive.  This does not acutally
-                  // indicate the function is tail recursive, or even recursive.
-                  j.WriteComment("WARNING: IsTailRecursive not supported but the method may not recurse"); // bugbug: implement
-                }
-                Contract.Assert(enclosingMethod == null);
-                enclosingMethod = m;
-                TrStmtList(m.Body.Body);
-                Contract.Assert(enclosingMethod == m);
-                enclosingMethod = null;
+              if (m.IsTailRecursive) {
+                // Note that Dafny conservatively flags functions as possibly-tail-recursive.  This does not acutally
+                // indicate the function is tail recursive, or even recursive.
+                j.WriteComment("WARNING: IsTailRecursive not supported but the method may not recurse"); // bugbug: implement
               }
+              Contract.Assert(enclosingMethod == null);
+              enclosingMethod = m;
+              TrStmtList(m.Body.Body);
+              Contract.Assert(enclosingMethod == m);
+              enclosingMethod = null;
               WriteEPopFrame();
               if (m.Outs.Count != 0) {
                 var ReturnValue = m.Outs[0];
@@ -1080,7 +1127,7 @@ namespace Microsoft.Dafny {
       j.Formatting = Formatting.None;
       using (WriteArray()) { // expr
         j.WriteValue(KremlinAst.EBound);
-        j.WriteComment(var.CompileName);
+        j.WriteComment(var.Name);
         j.WriteValue(VarTracker.GetIndex(var));
       }
       j.Formatting = old;
@@ -1256,7 +1303,7 @@ namespace Microsoft.Dafny {
         }
         else if (xType is UserDefinedType) {
           var udt = (UserDefinedType)xType;
-          var s = udt.FullCompileName;
+          var s = udt.FullName;
           var rc = udt.ResolvedClass;
           if (DafnyOptions.O.IronDafny &&
               !(xType is ArrowType) &&
@@ -1272,7 +1319,7 @@ namespace Microsoft.Dafny {
                 rc = rc.ExclusiveRefinement;
               }
             }
-            s = rc.FullCompileName;
+            s = rc.FullName;
           }
           WriteTypeName_UDT(s, udt.TypeArgs);
         }
@@ -1396,13 +1443,13 @@ namespace Microsoft.Dafny {
 
 
     // This is the inside of a typ, as the caller has already generated the opening '[' and will generate the closing '] afterwards
-    void WriteTypeName_UDT(string fullCompileName, List<Type> typeArgs) {
-      Contract.Requires(fullCompileName != null);
+    void WriteTypeName_UDT(string fullName, List<Type> typeArgs) {
+      Contract.Requires(fullName != null);
       Contract.Requires(typeArgs != null);
 
       j.WriteValue(KremlinAst.TQualified);
       using (WriteArray()) {
-        string s = fullCompileName;
+        string s = fullName;
         if (typeArgs.Count != 0) {
           if (typeArgs.Exists(argType => argType is ObjectType)) {
             Error("compilation does not support type 'object' as a type parameter; consider introducing a ghost");
@@ -1417,11 +1464,11 @@ namespace Microsoft.Dafny {
           }
           else {
             for (int i = 0; i < names.Length - 1; ++i) {
-              j.WriteValue(RemoveCSharpPrefix(names[i]));
+              j.WriteValue(names[i]);
             }
           }
         }
-        j.WriteValue(RemoveCSharpPrefix(names[names.Length - 1]));
+        j.WriteValue(names[names.Length - 1]);
       }
     }
 
@@ -1506,7 +1553,7 @@ namespace Microsoft.Dafny {
       }
       else if (xType.IsDatatype) {
         var udt = (UserDefinedType)xType;
-        var s = udt.FullCompileName;
+        var s = udt.FullName;
         var rc = udt.ResolvedClass;
         if (DafnyOptions.O.IronDafny &&
             !(xType is ArrowType) &&
@@ -1522,7 +1569,7 @@ namespace Microsoft.Dafny {
               rc = rc.ExclusiveRefinement;
             }
           }
-          s = rc.FullCompileName;
+          s = rc.FullName;
         }
         using (WriteArray()) {
           if (udt.TypeArgs.Count != 0) {
@@ -1735,7 +1782,7 @@ namespace Microsoft.Dafny {
                 j.WriteStartArray();
                 j.WriteValue(KremlinAst.ELet);
                 j.WriteStartArray();
-                WriteBinder(target, target.CompileName, true); // lident
+                WriteBinder(target, target.Name, true); // lident
                 TrRhs(target, null, rhs); // expr
                 VarTracker.Push(target);
                 // "in" is the contents that follow
@@ -2046,13 +2093,13 @@ namespace Microsoft.Dafny {
                 j.WriteValue(KremlinAst.EAssign);
                 using (WriteArray()) {
                   using (WriteArray()) {
-                    // e.Member.CompileName is the field name
+                    // e.Member.Name is the field name
                     // e.Obj.Name is the struct name
                     j.WriteValue(KremlinAst.EField);
                     using (WriteArray()) { // of (lident * expr * ident)
                       WriteLident(e.Obj.Type);
                       TrExpr(e.Obj, false); // This will generate an EBound reference to the variable
-                      j.WriteValue(e.Member.CompileName);
+                      j.WriteValue(e.Member.Name);
                     }
                   }
                   TrAssignmentRhs(rhs);
@@ -2226,7 +2273,7 @@ namespace Microsoft.Dafny {
               j.WriteStartArray();
               j.WriteValue(KremlinAst.ELet);
               j.WriteStartArray();
-              WriteBinder(l, l.CompileName, true); // lident
+              WriteBinder(l, l.Name, true); // lident
               WriteDefaultValue(l.Type);    // = default
               VarTracker.Push(l);
               // "in" is the contents that follow
@@ -2293,7 +2340,7 @@ namespace Microsoft.Dafny {
 
         using (WriteArray()) {
           // Binder
-          WriteBinder(v, v.CompileName, true);
+          WriteBinder(v, v.Name, true);
           // expr1
           WriteDefaultValue(v.Type);
           VarTracker.Push(v);
@@ -2352,7 +2399,7 @@ namespace Microsoft.Dafny {
       using (WriteArray()) {
         j.WriteValue(KremlinAst.ELet);
         using (WriteArray()) { // of (binder * expr * expr)
-          WriteBinder(tmpVar1, tmpVar1.CompileName, false); // binder
+          WriteBinder(tmpVar1, tmpVar1.Name, false); // binder
           using (WriteArray()) {  // expr1
             j.WriteValue(KremlinAst.EBufCreateL); // of expr list
             using (WriteArray()) {
@@ -2373,7 +2420,7 @@ namespace Microsoft.Dafny {
       while (DafnyOptions.O.IronDafny && d.ClonedFrom != null) {
         d = (TopLevelDecl)d.ClonedFrom;
       }
-      return d.FullCompileName;
+      return d.FullName;
     }
 
     void TrAssign(Expression lhs, IVariable rhs) {
@@ -2465,13 +2512,13 @@ namespace Microsoft.Dafny {
       }
       else {
         using (WriteArray()) {
-          // e.Member.CompileName is the field name
+          // e.Member.Name is the field name
           // e.Obj.Name is the struct name
           j.WriteValue(KremlinAst.EField);
           using (WriteArray()) { // of (lident * expr * ident)
             WriteLident(e.Obj.Type);
             TrExpr(e.Obj, false); // This will generate an EBound reference to the variable
-            j.WriteValue(e.Member.CompileName);
+            j.WriteValue(e.Member.Name);
           }
         }
       }
