@@ -464,46 +464,62 @@ namespace Microsoft.Dafny {
       foreach (DatatypeCtor ctor in dt.Ctors) {
 
         VarTracker.Clear();
-        enclosingThis = new BoundVar(ctor.tok, ThisName, thisType);
+        var pThis = new BoundVar(ctor.tok, ThisName, thisType);
 
         using (WriteArray()) {
           j.WriteValue(KremlinAst.DFunction);
           using (WriteArray()) { // of (typ * lident * binder list * expr)
-            WriteTUnit(); // returns nothing
+            WriteTypeName(thisType); // returns type of 'this'
             WriteLident(ctor.FullName);
             using (WriteArray()) { // start of binder list
               WriteFormals(ctor.Formals);
             }
             using (WriteArray()) {
               j.WriteValue(KremlinAst.ESequence);
+              // Do not emit EPushFrame/EPopFrame, as we want the allocation
+              //  of pThis to be inlined into the calling function.
               using (WriteArray()) {
-                WriteEPushFrame();
-                foreach (Formal arg in ctor.Formals) {
-                  if (arg.IsGhost) {
-                    continue;
-                  }
-                  // ELet EField of this.arg = EBound of Formal in _
-                  using (WriteArray()) {
-                    Formatting old = j.Formatting;
-                    j.Formatting = Formatting.None;
-                    j.WriteValue(KremlinAst.EAssign);
-                    using (WriteArray()) { // of (expr * expr)
-                      // First expr:  EField of 'this' to write into
-                      using (WriteArray()) {
-                        j.WriteValue(KremlinAst.EField);
-                        using (WriteArray()) {  // of (lident * expr * ident)
-                          WriteLident(enclosingThis.Type); // lident
-                          WriteEBound(enclosingThis);
-                          j.WriteValue(arg.CompileName);
+                // ELet pThis = DefaultValueOfType in ESequence...
+                using (WriteArray()) {
+                  j.WriteValue(KremlinAst.ELet);
+                  using (WriteArray()) { // of (binder * expr * expr)
+                    WriteBinder(pThis, ThisName, true);
+                    VarTracker.Push(pThis);
+                    WriteDefaultValue(thisType);
+                    using (WriteArray()) {
+                      j.WriteValue(KremlinAst.ESequence);
+                      using (WriteArray()) { // of expr list
+                        foreach (Formal arg in ctor.Formals) {
+                          if (arg.IsGhost) {
+                            continue;
+                          }
+                          // EAssign EField of this.arg = EBound of Formal
+                          using (WriteArray()) {
+                            Formatting old = j.Formatting;
+                            j.Formatting = Formatting.None;
+                            j.WriteValue(KremlinAst.EAssign);
+                            using (WriteArray()) { // of (expr * expr)
+                              // First expr:  EField of 'this' to write into
+                              using (WriteArray()) {
+                                j.WriteValue(KremlinAst.EField);
+                                using (WriteArray()) {  // of (lident * expr * ident)
+                                  WriteLident(pThis.Type); // lident
+                                  WriteEBound(pThis);
+                                  j.WriteValue(arg.CompileName);
+                                }
+                              }
+                              // Second expr: // EBound of formal
+                              WriteEBound(arg);
+                            }
+                            j.Formatting = old;
+                          }
                         }
+                        WriteEBound(pThis); // and return the pThis expression from the constructor
                       }
-                      // Second expr: // EBound of formal
-                      WriteEBound(arg);
                     }
-                    j.Formatting = old;
+                    VarTracker.Pop(pThis);
                   }
                 }
-                WriteEPopFrame();
               }
             }
           }
@@ -1543,7 +1559,14 @@ namespace Microsoft.Dafny {
         WriteEAbort("BUGBUG Dafny MultiSetType is unsupported");  // bugbug: implement
       }
       else if (xType is SeqType) {
-        WriteEAbort("BUGBUG Dafny SeqType is unsupported");  // bugbug: implement
+        Type argType = ((SeqType)xType).Arg;
+        // EBufCreateL of expr list
+        using (WriteArray()) {
+          j.WriteValue(KremlinAst.EBufCreateL);
+          using (WriteArray()) {
+            WriteDefaultValue(argType);
+          }
+        }
       }
       else if (xType is MapType) {
         WriteEAbort("BUGBUG Dafny MapType is unsupported");  // bugbug: implement
@@ -2619,7 +2642,7 @@ namespace Microsoft.Dafny {
         DatatypeValue dtv = (DatatypeValue)expr;
         Contract.Assert(dtv.Ctor != null);  // since dtv has been successfully resolved
         if (dtv.InferredTypeArgs.Count != 0) {
-          WriteEAbort("bugbug: TrExpr of DataTypeValue with InferredTypeArsg is unsupported"); // bugbug: implement
+          WriteEAbort("bugbug: TrExpr of DataTypeValue with InferredTypeArgs is unsupported"); // bugbug: implement
         }
         else if (dtv.IsCoCall) {
           WriteEAbort("bugbug: TrExpr of DataTypeValue of CoCall is unsupported"); // bugbug: implement
