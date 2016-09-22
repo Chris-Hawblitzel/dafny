@@ -819,6 +819,7 @@ namespace Microsoft.Dafny {
             if (forCompanionClass || Attributes.Contains(f.Attributes, "axiom")) {
               // suppress error message (in the case of "forCompanionClass", the non-forCompanionClass call will produce the error message)
             } else {
+              WriteToken(member.tok);
               CompileExternalFunction(f);
             }
           } else if (f.IsGhost) {
@@ -850,6 +851,7 @@ namespace Microsoft.Dafny {
             if (forCompanionClass || Attributes.Contains(m.Attributes, "axiom")) {
               // suppress error message (in the case of "forCompanionClass", the non-forCompanionClass call will produce the error message)
             } else {
+              WriteToken(member.tok);
               CompileExternalMethod(c, m);
             }
           } else if (m.IsGhost) {
@@ -920,21 +922,15 @@ namespace Microsoft.Dafny {
 
       VarTracker.Clear();
 
-#if false // bugbug: Kremlin DExternal (of lident * typ) cannot express argument types yet
-      if (f.TypeArgs.Count != 0) {
-        // Template expansion isn't supported
-        j.WriteComment("BUGBUG: Type args not supported:  omitting function " + f.FullCompileName);
-        return;
-      }
-
-      using (WriteArray()) {
-        j.WriteValue(KremlinAst.DExternal);
-        using (WriteArray()) { // of (lident * typ)
-          WriteLident(f); // lident
-          WriteTypeName(f.ResultType); // typ
+      List<Tuple<Type, string>> typeList = new List<Tuple<Type, string>>();
+      foreach (Formal p in f.Formals) {
+        if (!p.IsGhost) {
+          typeList.Add(Tuple.Create(p.Type, p.Name));
         }
       }
-#endif
+      typeList.Add(Tuple.Create(f.ResultType, "returns"));
+
+      WriteExternal(f, typeList);
     }
 
     private void CompileFunction(Function f) {
@@ -981,15 +977,41 @@ namespace Microsoft.Dafny {
       }
     }
 
+    private void WriteExternal(MemberDecl lident, List<Tuple<Type, string>> typeList) {
+      using (WriteArray()) {
+        j.WriteValue(KremlinAst.DExternal);
+        using (WriteArray()) { // of (lident * typ)
+          WriteLident(lident); // lident
+
+          if (typeList.Count > 1) {
+            for (int i = 0; i < typeList.Count - 1; ++i) {
+              j.WriteStartArray();
+              j.WriteValue(KremlinAst.TArrow);
+              j.WriteStartArray(); // of (typ * typ)
+              j.WriteComment(typeList[i].Item2);
+              WriteTypeName(typeList[i].Item1);
+            }
+          }
+          Type finalType = typeList[typeList.Count - 1].Item1;
+          if (finalType == null) {
+            WriteTUnit();
+          }
+          else {
+            WriteTypeName(finalType);
+          }
+          for (int i = 0; i < typeList.Count - 1; ++i) {
+            j.WriteEndArray();
+            j.WriteEndArray();
+          }
+        }
+      }
+    }
+
     // Compile a method with no body
     private void CompileExternalMethod(ClassDecl c, Method m) {
       Contract.Assert(c != null);
       Contract.Assert(m != null);
       Contract.Assert(m.Body == null);
-
-      VarTracker.Clear();
-
-#if false // bugbug: Kremlin DExternal (of lident * typ) cannot express argument types yet
 
       if (m.TypeArgs.Count != 0) {
         // Template expansion isn't supported
@@ -997,17 +1019,27 @@ namespace Microsoft.Dafny {
         return;
       }
 
-      UserDefinedType thisType = UserDefinedType.FromTopLevelDecl(c.tok, c);
-      var pThis = new BoundVar(c.tok, ThisName, thisType);
-
-      using (WriteArray()) {
-        j.WriteValue(KremlinAst.DExternal);
-        using (WriteArray()) { // of (lident * typ)
-          WriteLident(m); // lident
-          WriteMethodReturnType(m.Outs); // typ
+      List<Tuple<Type, string>> typeList = new List<Tuple<Type, string>>();
+      if (enclosingThis != null) {
+        typeList.Add(Tuple.Create(enclosingThis.Type, ThisName));
+      }
+      foreach (Formal p in m.Ins) {
+        if (!p.IsGhost) {
+          typeList.Add(Tuple.Create(p.Type, p.Name));
         }
       }
-#endif
+      bool HasAnOut = false;
+      foreach (Formal p in m.Outs) {
+        if (!p.IsGhost) {
+          typeList.Add(Tuple.Create(p.Type, p.Name));
+          HasAnOut = true;
+        }
+      }
+      if (!HasAnOut) {
+        typeList.Add(new Tuple<Type, string>(null, ""));
+      }
+
+      WriteExternal(m, typeList);
     }
 
     private void CompileMethod(ClassDecl c, Method m) {
@@ -1022,9 +1054,6 @@ namespace Microsoft.Dafny {
         j.WriteComment("BUGBUG: Type args not supported:  omitting method " + m.FullCompileName);
         return;
       }
-
-      UserDefinedType thisType = UserDefinedType.FromTopLevelDecl(c.tok, c);
-      var pThis = new BoundVar(c.tok, ThisName, thisType);
 
       using (WriteArray()) {
         j.WriteValue(KremlinAst.DFunction);
