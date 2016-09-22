@@ -494,18 +494,24 @@ namespace Microsoft.Dafny {
                           if (arg.IsGhost) {
                             continue;
                           }
-                          // EAssign EField of this.arg = EBound of Formal
+                          // EAssign (EField of (EBufRead this.arg 0)) = EBound of Formal
                           using (WriteArray()) {
                             Formatting old = j.Formatting;
                             j.Formatting = Formatting.None;
                             j.WriteValue(KremlinAst.EAssign);
                             using (WriteArray()) { // of (expr * expr)
-                              // First expr:  EField of 'this' to write into
+                              // First expr:  EField of EBufRead('this',0) to write into
                               using (WriteArray()) {
                                 j.WriteValue(KremlinAst.EField);
                                 using (WriteArray()) {  // of (lident * expr * ident)
                                   WriteLident(pThis.Type); // lident
-                                  WriteEBound(pThis);
+                                  using (WriteArray()) {
+                                    j.WriteValue(KremlinAst.EBufRead);
+                                    using (WriteArray()) {
+                                      WriteEBound(pThis);
+                                      WriteConstant(0u);
+                                    }
+                                  }
                                   j.WriteValue(arg.Name);
                                 }
                               }
@@ -1447,28 +1453,31 @@ namespace Microsoft.Dafny {
       Contract.Requires(fullName != null);
       Contract.Requires(typeArgs != null);
 
-      j.WriteValue(KremlinAst.TQualified);
+      j.WriteValue(KremlinAst.TBuf);
       using (WriteArray()) {
-        string s = fullName;
-        if (typeArgs.Count != 0) {
-          if (typeArgs.Exists(argType => argType is ObjectType)) {
-            Error("compilation does not support type 'object' as a type parameter; consider introducing a ghost");
-          }
-          j.WriteComment("BUGBUG Template types not supported in UDTs"); // bugbug: implement
-        }
-
-        string[] names = s.Split('.');
+        j.WriteValue(KremlinAst.TQualified);
         using (WriteArray()) {
-          if (names.Length == 1) {
-            j.WriteValue(DafnyDefaultModuleName);
+          string s = fullName;
+          if (typeArgs.Count != 0) {
+            if (typeArgs.Exists(argType => argType is ObjectType)) {
+              Error("compilation does not support type 'object' as a type parameter; consider introducing a ghost");
+            }
+            j.WriteComment("BUGBUG Template types not supported in UDTs"); // bugbug: implement
           }
-          else {
-            for (int i = 0; i < names.Length - 1; ++i) {
-              j.WriteValue(names[i]);
+
+          string[] names = s.Split('.');
+          using (WriteArray()) {
+            if (names.Length == 1) {
+              j.WriteValue(DafnyDefaultModuleName);
+            }
+            else {
+              for (int i = 0; i < names.Length - 1; ++i) {
+                j.WriteValue(names[i]);
+              }
             }
           }
+          j.WriteValue(names[names.Length - 1]);
         }
-        j.WriteValue(names[names.Length - 1]);
       }
     }
 
@@ -1577,18 +1586,23 @@ namespace Microsoft.Dafny {
           }
           else {
             IndDatatypeDecl dcl = rc as IndDatatypeDecl;
-            j.WriteValue(KremlinAst.EFlat);
-            using (WriteArray()) { // (lident list of (ident * expr))
-              WriteLident(udt);
-              using (WriteArray()) {
-                int i = 0;
-                foreach (var arg in dcl.DefaultCtor.Formals) {
-                  if (arg.IsGhost) {
-                    continue;
-                  }
+            j.WriteValue(KremlinAst.EBufCreateL);
+            using (WriteArray()) { // of expr list
+                using (WriteArray()) {
+                j.WriteValue(KremlinAst.EFlat);
+                using (WriteArray()) { // (lident list of (ident * expr))
+                  WriteLident(udt);
                   using (WriteArray()) {
-                    j.WriteValue(FormalName(arg, i)); // ident
-                    WriteDefaultValue(arg.Type);      // expr
+                    int i = 0;
+                    foreach (var arg in dcl.DefaultCtor.Formals) {
+                      if (arg.IsGhost) {
+                        continue;
+                      }
+                      using (WriteArray()) {
+                        j.WriteValue(FormalName(arg, i)); // ident
+                        WriteDefaultValue(arg.Type);      // expr
+                      }
+                    }
                   }
                 }
               }
@@ -2089,20 +2103,28 @@ namespace Microsoft.Dafny {
             if (sf != null) {
               WriteEAbort("BUGBUG MemberSelectExpr TrRhs if SpecialField not supported"); // bugbug: implement
             } else {
+              // EAssign of
+              //   EField(lident, EBufRead( EBound(var), 0), FieldName)
               using (WriteArray()) {
                 j.WriteValue(KremlinAst.EAssign);
-                using (WriteArray()) {
+                using (WriteArray()) { // of (expr * expr)
+
+                  // EAssign expr1
                   using (WriteArray()) {
-                    // e.Member.Name is the field name
-                    // e.Obj.Name is the struct name
                     j.WriteValue(KremlinAst.EField);
                     using (WriteArray()) { // of (lident * expr * ident)
                       WriteLident(e.Obj.Type);
-                      TrExpr(e.Obj, false); // This will generate an EBound reference to the variable
+                      using (WriteArray()) {
+                        j.WriteValue(KremlinAst.EBufRead);
+                        using (WriteArray()) { // of (expr * expr)
+                          TrExpr(e.Obj, false); // This will generate an EBound reference to the variable
+                          WriteConstant(0u);    // expr2 is the offset (always 0)
+                        }
+                      }
                       j.WriteValue(e.Member.Name);
                     }
                   }
-                  TrAssignmentRhs(rhs);
+                  TrAssignmentRhs(rhs); // right-hand-side expression
                 }
               }
             }
@@ -2517,7 +2539,13 @@ namespace Microsoft.Dafny {
           j.WriteValue(KremlinAst.EField);
           using (WriteArray()) { // of (lident * expr * ident)
             WriteLident(e.Obj.Type);
-            TrExpr(e.Obj, false); // This will generate an EBound reference to the variable
+            using (WriteArray()) {
+              j.WriteValue(KremlinAst.EBufRead);
+              using (WriteArray()) {
+                TrExpr(e.Obj, false); // This will generate an EBound reference to the variable
+                WriteConstant(0u);
+              }
+            }
             j.WriteValue(e.Member.Name);
           }
         }
