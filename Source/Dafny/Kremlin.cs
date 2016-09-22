@@ -31,7 +31,7 @@ namespace Microsoft.Dafny {
     List<LocalVariable> varDeclsList; // a list of variable declarations within a Statement list.  Non-null on the first call to TrStmt(), null on the second
     Method enclosingMethod;  // non-null when a method body is being translated
     BoundVar enclosingThis;  // non-null when a class function or method is being translated
-    const string DafnyDefaultModuleName = "DafnyDefaultModule";
+    const string DafnyDefaultModuleName = "Dafny";
     const string ThisName = "this";
 
 
@@ -887,16 +887,28 @@ namespace Microsoft.Dafny {
 
     private void WriteLident(string FullName) {
       string[] names = FullName.Split('.');
+      for (int i = 0; i < names.Length; ++i) {
+        // Remove '#' prefix.  See DatatypeCtor.FullName in DafnyAst.cs.
+        names[i] = names[i].TrimStart('#');
+        // See DefaultModuleDecl in DafnyAst.cs for the hard-coded name "_module"
+        // And see DefaultClassDecl for the hard-coded name "_default".
+
+        if (names[i] == "_module" || names[i] == "_default") {
+          names[i] = DafnyDefaultModuleName;
+        }
+      }
+
       using (WriteArray()) {
         using (WriteArray()) {
           if (names.Length == 1) {
             j.WriteValue(DafnyDefaultModuleName);
           }
           else {
-            if (names[0] == "_module") { // See DefaultModuleDecl in DafnyAst.cs
-              names[0] = DafnyDefaultModuleName;
+            int i = 0;
+            if (names.Length > 2 && names[0] == DafnyDefaultModuleName) { 
+              i = 1; // Skip the default module name
             }
-            for (int i = 0; i < names.Length - 1; ++i) {
+            for (; i < names.Length - 1; ++i) {
               j.WriteValue(names[i]);
             }
           }
@@ -982,6 +994,11 @@ namespace Microsoft.Dafny {
     }
 
     private void WriteExternal(MemberDecl lident, List<Tuple<Type, string>> typeList) {
+      if (typeList.Count == 1 && typeList[0].Item1 == null) {
+        // The typeList is just TUnit, so there are no inputs and no outputs.
+        return;
+      }
+
       using (WriteArray()) {
         j.WriteValue(KremlinAst.DExternal);
         using (WriteArray()) { // of (lident * typ)
@@ -1494,28 +1511,13 @@ namespace Microsoft.Dafny {
       j.WriteValue(KremlinAst.TBuf);
       using (WriteArray()) {
         j.WriteValue(KremlinAst.TQualified);
-        using (WriteArray()) {
-          string s = fullName;
-          if (typeArgs.Count != 0) {
-            if (typeArgs.Exists(argType => argType is ObjectType)) {
-              Error("compilation does not support type 'object' as a type parameter; consider introducing a ghost");
-            }
-            j.WriteComment("BUGBUG Template types not supported in UDTs"); // bugbug: implement
+        if (typeArgs.Count != 0) {
+          if (typeArgs.Exists(argType => argType is ObjectType)) {
+            Error("compilation does not support type 'object' as a type parameter; consider introducing a ghost");
           }
-
-          string[] names = s.Split('.');
-          using (WriteArray()) {
-            if (names.Length == 1) {
-              j.WriteValue(DafnyDefaultModuleName);
-            }
-            else {
-              for (int i = 0; i < names.Length - 1; ++i) {
-                j.WriteValue(names[i]);
-              }
-            }
-          }
-          j.WriteValue(names[names.Length - 1]);
+          j.WriteComment("BUGBUG Template types not supported in UDTs"); // bugbug: implement
         }
+        WriteLident(fullName);
       }
     }
 
