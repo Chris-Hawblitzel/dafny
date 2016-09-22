@@ -293,7 +293,7 @@ namespace Microsoft.Dafny {
       // program.Name is the source filename without any path.  Remove the extension
       // and use it as the name of the default module.  In C#, this would have been
       // "_module".  See WriteLident() for the renaming process.
-      DafnyDefaultModuleName = System.IO.Path.GetFileNameWithoutExtension(program.Name);
+      DafnyDefaultModuleName = System.IO.Path.GetFileNameWithoutExtension(program.Name).Replace('.', '_');
 
       // Kremlin's JSON input is all JSON arrays, not serialized objects in the usual way.
       //  [6, [
