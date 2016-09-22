@@ -31,7 +31,7 @@ namespace Microsoft.Dafny {
     List<LocalVariable> varDeclsList; // a list of variable declarations within a Statement list.  Non-null on the first call to TrStmt(), null on the second
     Method enclosingMethod;  // non-null when a method body is being translated
     BoundVar enclosingThis;  // non-null when a class function or method is being translated
-    const string DafnyDefaultModuleName = "Dafny";
+    string DafnyDefaultModuleName = "Dafny";
     const string ThisName = "this";
 
 
@@ -289,6 +289,11 @@ namespace Microsoft.Dafny {
 
     public void Compile(Program program, TextWriter wr) {
       Contract.Requires(program != null);
+
+      // program.Name is the source filename without any path.  Remove the extension
+      // and use it as the name of the default module.  In C#, this would have been
+      // "_module".  See WriteLident() for the renaming process.
+      DafnyDefaultModuleName = System.IO.Path.GetFileNameWithoutExtension(program.Name);
 
       // Kremlin's JSON input is all JSON arrays, not serialized objects in the usual way.
       //  [6, [
