@@ -816,9 +816,11 @@ namespace Microsoft.Dafny {
           var f = (Function)member;
           if (f.Body == null && !(c is TraitDecl && !f.IsStatic)) {
             // A (ghost or non-ghost) function must always have a body, except if it's an instance function in a trait.
-            if (forCompanionClass || Attributes.Contains(f.Attributes, "axiom")) {
+            if (forCompanionClass /* || Attributes.Contains(f.Attributes, "axiom") */) {
               // suppress error message (in the case of "forCompanionClass", the non-forCompanionClass call will produce the error message)
             } else {
+              // The C# backend ignores functions that are axioms.  But for
+              // the Spartan scenario, treat these as extern functions.
               WriteToken(member.tok);
               CompileExternalFunction(f);
             }
@@ -848,9 +850,11 @@ namespace Microsoft.Dafny {
           var m = (Method)member;
           if (m.Body == null && !(c is TraitDecl && !m.IsStatic)) {
             // A (ghost or non-ghost) method must always have a body, except if it's an instance method in a trait.
-            if (forCompanionClass || Attributes.Contains(m.Attributes, "axiom")) {
+            if (forCompanionClass /* || Attributes.Contains(m.Attributes, "axiom") */ ) {
               // suppress error message (in the case of "forCompanionClass", the non-forCompanionClass call will produce the error message)
             } else {
+              // The C# backend ignores functions that are axioms.  But for
+              // the Spartan scenario, treat these as extern functions.
               WriteToken(member.tok);
               CompileExternalMethod(c, m);
             }
@@ -1052,6 +1056,11 @@ namespace Microsoft.Dafny {
       if (m.TypeArgs.Count != 0) {
         // Template expansion isn't supported
         j.WriteComment("BUGBUG: Type args not supported:  omitting method " + m.FullCompileName);
+        return;
+      }
+
+      if (m.Name == "ExtractWordFromByteArray") {
+        j.WriteComment("BUGBUG:  Skipping ExtractWordFromByteArray until Kremlin supports EPopFrame/EReturn");
         return;
       }
 
