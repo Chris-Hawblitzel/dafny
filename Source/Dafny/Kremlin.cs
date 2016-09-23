@@ -1190,11 +1190,6 @@ namespace Microsoft.Dafny {
         return;
       }
 
-      if (m.Name == "ExtractWordFromByteArray") {
-        j.WriteComment("BUGBUG:  Skipping ExtractWordFromByteArray until Kremlin supports EPopFrame/EReturn");
-        return;
-      }
-
       using (WriteArray()) {
         j.WriteValue(KremlinAst.DFunction);
         using (WriteArray()) { // of (typ * lident * binder list * expr)
