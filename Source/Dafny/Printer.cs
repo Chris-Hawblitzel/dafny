@@ -581,7 +581,7 @@ namespace Microsoft.Dafny {
       if (PrintModeSkipFunctionOrMethod(f.IsGhost, f.Attributes, f.Name)) { return; }
       var isPredicate = f is Predicate || f is PrefixPredicate;
       Indent(indent);
-      string k = isPredicate ? "predicate" : f is InductivePredicate ? "inductive predicate" : f is CoPredicate ? "copredicate" : "function";
+      string k = isPredicate ? "predicate" : f.WhatKind;
       if (f.IsProtected) { k = "protected " + k; }
       if (f.HasStaticKeyword) { k = "static " + k; }
       if (!f.IsGhost) { k += " method"; }
@@ -590,7 +590,7 @@ namespace Microsoft.Dafny {
         wr.WriteLine(" ...");
       } else {
         PrintFormals(f.Formals, f, f.Name);
-        if (!isPredicate) {
+        if (!isPredicate && !(f is TwoStatePredicate)) {
           wr.Write(": ");
           PrintType(f.ResultType);
         }
@@ -683,12 +683,6 @@ namespace Microsoft.Dafny {
       if (method.Mod.Expressions != null) {
         PrintFrameSpecLine("modifies", method.Mod.Expressions, ind, method.Mod.HasAttributes() ? method.Mod.Attributes : null);
       }
-      if (method is TwoStateLemma) {
-        var two = (TwoStateLemma)method;
-        if (two.Reads.Expressions != null) {
-          PrintFrameSpecLine("reads", two.Reads.Expressions, ind, two.Reads.HasAttributes() ? two.Reads.Attributes : null);
-        }
-      }
       PrintSpec("ensures", method.Ens, ind);
       PrintDecreasesSpec(method.Decreases, ind);
 
@@ -713,7 +707,7 @@ namespace Microsoft.Dafny {
         Contract.Assert(f != null);
         wr.Write(sep);
         sep = ", ";
-        PrintFormal(f, context is TwoStateLemma && f.InParam);
+        PrintFormal(f, (context is TwoStateLemma || context is TwoStateFunction) && f.InParam);
       }
       wr.Write(")");
     }
@@ -1729,14 +1723,20 @@ namespace Microsoft.Dafny {
         }
         if (parensNeeded) { wr.Write(")"); }
 
+      } else if (expr is MultiSetFormingExpr) {
+        wr.Write("multiset(");
+        PrintExpression(((MultiSetFormingExpr)expr).E, false);
+        wr.Write(")");
+
       } else if (expr is OldExpr) {
         wr.Write("old(");
         PrintExpression(((OldExpr)expr).E, false);
         wr.Write(")");
 
-      } else if (expr is MultiSetFormingExpr) {
-        wr.Write("multiset(");
-        PrintExpression(((MultiSetFormingExpr)expr).E, false);
+      } else if (expr is UnchangedExpr) {
+        var e = (UnchangedExpr)expr;
+        wr.Write("unchanged(");
+        PrintFrameExpressionList(e.Frame);
         wr.Write(")");
 
       } else if (expr is UnaryOpExpr) {
@@ -2212,7 +2212,11 @@ namespace Microsoft.Dafny {
         Contract.Assert(fe != null);
         wr.Write(sep);
         sep = ", ";
-        PrintExpression(fe.E, true);
+        if (fe.E is ImplicitThisExpr) {
+          Contract.Assert(fe.FieldName != null);
+        } else {
+          PrintExpression(fe.E, true);
+        }
         if (fe.FieldName != null) {
           wr.Write("`{0}", fe.FieldName);
         }

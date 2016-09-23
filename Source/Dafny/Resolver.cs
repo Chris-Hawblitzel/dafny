@@ -3173,7 +3173,7 @@ namespace Microsoft.Dafny
               if (t is TypeProxy) {
                 return false;  // there is not enough information
               }
-              satisfied = t.IsRefType || t.IsDatatype;
+              satisfied = t.IsRefType;
               break;
             }
           case "ModifiesFrame": {
@@ -3856,10 +3856,6 @@ namespace Microsoft.Dafny
         m.Ens.Iter(mfe => CheckTypeInference_MaybeFreeExpression(mfe, m));
         CheckTypeInference_Specification_FrameExpr(m.Mod, m);
         CheckTypeInference_Specification_Expr(m.Decreases, m);
-        if (m is TwoStateLemma) {
-          var two = (TwoStateLemma)m;
-          CheckTypeInference_Specification_FrameExpr(two.Reads, two);
-        }
         if (m.Body != null) {
           CheckTypeInference(m.Body, m);
         }
@@ -6044,27 +6040,27 @@ namespace Microsoft.Dafny
         DafnyOptions.O.WarnShadowing = warnShadowing;  // set the value according to the attribute
       }
       foreach (Expression r in f.Req) {
-        ResolveExpression(r, new ResolveOpts(f, false));
+        ResolveExpression(r, new ResolveOpts(f, f is TwoStateFunction));
         Contract.Assert(r.Type != null);  // follows from postcondition of ResolveExpression
         ConstrainTypeExprBool(r, "Precondition must be a boolean (got {0})");
       }
       foreach (FrameExpression fr in f.Reads) {
-        ResolveFrameExpression(fr, true, f);
+        ResolveFrameExpression(fr, FrameExpressionUse.Reads, f);
       }
       foreach (Expression r in f.Ens) {
-        ResolveExpression(r, new ResolveOpts(f, false));  // since this is a function, the postcondition is still a one-state predicate
+        ResolveExpression(r, new ResolveOpts(f, f is TwoStateFunction));  // since this is a function, the postcondition is still a one-state predicate, unless it's a two-state function
         Contract.Assert(r.Type != null);  // follows from postcondition of ResolveExpression
         ConstrainTypeExprBool(r, "Postcondition must be a boolean (got {0})");
       }
-      ResolveAttributes(f.Decreases.Attributes, null, new ResolveOpts(f, false));
+      ResolveAttributes(f.Decreases.Attributes, null, new ResolveOpts(f, f is TwoStateFunction));
       foreach (Expression r in f.Decreases.Expressions) {
-        ResolveExpression(r, new ResolveOpts(f, false));
+        ResolveExpression(r, new ResolveOpts(f, f is TwoStateFunction));
         // any type is fine
       }
       SolveAllTypeConstraints();
       if (f.Body != null) {
         var prevErrorCount = reporter.Count(ErrorLevel.Error);
-        ResolveExpression(f.Body, new ResolveOpts(f, false));
+        ResolveExpression(f.Body, new ResolveOpts(f, f is TwoStateFunction));
         Contract.Assert(f.Body.Type != null);  // follows from postcondition of ResolveExpression
         ConstrainSubtypeRelation(f.ResultType, f.Body.Type, f.tok, "Function body type mismatch (expected {0}, got {1})", f.ResultType, f.Body.Type);
         SolveAllTypeConstraints();
@@ -6074,21 +6070,22 @@ namespace Microsoft.Dafny
       DafnyOptions.O.WarnShadowing = warnShadowingOption; // restore the original warnShadowing value
     }
 
-    /// <summary>
-    /// 
-    /// </summary>
-    /// <param name="readsFrame">True indicates "reads", false indicates "modifies".</param>
-    void ResolveFrameExpression(FrameExpression fe, bool readsFrame, ICodeContext codeContext) {
+    public enum FrameExpressionUse { Reads, Modifies, Unchanged }
+
+    void ResolveFrameExpression(FrameExpression fe, FrameExpressionUse use, ICodeContext codeContext) {
       Contract.Requires(fe != null);
       Contract.Requires(codeContext != null);
       ResolveExpression(fe.E, new ResolveOpts(codeContext, codeContext is TwoStateLemma));
       Type t = fe.E.Type;
       Contract.Assert(t != null);  // follows from postcondition of ResolveExpression
       var eventualRefType = new InferredTypeProxy();
-      if (readsFrame) {
+      if (use == FrameExpressionUse.Reads) {
         AddXConstraint(fe.E.tok, "ReadsFrame", t, eventualRefType, "a reads-clause expression must denote an object or a collection of objects (instead got {0})");
       } else {
-        AddXConstraint(fe.E.tok, "ModifiesFrame", t, eventualRefType, "a modifies-clause expression must denote an object or a collection of objects (instead got {0})");
+        AddXConstraint(fe.E.tok, "ModifiesFrame", t, eventualRefType,
+          use == FrameExpressionUse.Modifies ?
+          "a modifies-clause expression must denote an object or a collection of objects (instead got {0})" :
+          "an unchanged expression must denote an object or a collection of objects (instead got {0})");
       }
       if (fe.FieldName != null) {
         NonProxyType nptype;
@@ -6169,18 +6166,11 @@ namespace Microsoft.Dafny
         }
         ResolveAttributes(m.Mod.Attributes, null, new ResolveOpts(m, false));
         foreach (FrameExpression fe in m.Mod.Expressions) {
-          ResolveFrameExpression(fe, false, m);
+          ResolveFrameExpression(fe, FrameExpressionUse.Modifies, m);
           if (m is Lemma || m is TwoStateLemma || m is FixpointLemma) {
             reporter.Error(MessageSource.Resolver, fe.tok, "{0}s are not allowed to have modifies clauses", m.WhatKind);
           } else if (m.IsGhost) {
             DisallowNonGhostFieldSpecifiers(fe);
-          }
-        }
-        if (m is TwoStateLemma) {
-          var two = (TwoStateLemma)m;
-          ResolveAttributes(two.Reads.Attributes, null, new ResolveOpts(m, true));
-          foreach (FrameExpression fe in two.Reads.Expressions) {
-            ResolveFrameExpression(fe, true, m);
           }
         }
         ResolveAttributes(m.Decreases.Attributes, null, new ResolveOpts(m, false));
@@ -6300,10 +6290,10 @@ namespace Microsoft.Dafny
         ConstrainSubtypeRelation(d.Type, e.Type, e, "type of field {0} is {1}, but has been constrained elsewhere to be of type {2}", d.Name, e.Type, d.Type);
       }
       foreach (FrameExpression fe in iter.Reads.Expressions) {
-        ResolveFrameExpression(fe, true, iter);
+        ResolveFrameExpression(fe, FrameExpressionUse.Reads, iter);
       }
       foreach (FrameExpression fe in iter.Modifies.Expressions) {
-        ResolveFrameExpression(fe, false, iter);
+        ResolveFrameExpression(fe, FrameExpressionUse.Modifies, iter);
       }
       foreach (MaybeFreeExpression e in iter.Requires) {
         ResolveExpression(e.E, new ResolveOpts(iter, false));
@@ -6446,6 +6436,10 @@ namespace Microsoft.Dafny
         new BinaryExpr(iter.tok, BinaryExpr.Opcode.Sub,
           new MemberSelectExpr(iter.tok, new ThisExpr(iter.tok), "_new"),
           new OldExpr(iter.tok, new MemberSelectExpr(iter.tok, new ThisExpr(iter.tok), "_new"))))));
+      // ensures null !in _new
+      ens.Add(new MaybeFreeExpression(new BinaryExpr(iter.tok, BinaryExpr.Opcode.NotIn,
+        new LiteralExpr(iter.tok),
+        new MemberSelectExpr(iter.tok, new ThisExpr(iter.tok), "_new"))));
       // ensures more ==> this.Valid();
       valid_call = new FunctionCallExpr(iter.tok, "Valid", new ThisExpr(iter.tok), iter.tok, new List<Expression>());
       ens.Add(new MaybeFreeExpression(new BinaryExpr(iter.tok, BinaryExpr.Opcode.Imp,
@@ -7215,7 +7209,7 @@ namespace Microsoft.Dafny
         var s = (ModifyStmt)stmt;
         ResolveAttributes(s.Mod.Attributes, null, new ResolveOpts(codeContext, true));
         foreach (FrameExpression fe in s.Mod.Expressions) {
-          ResolveFrameExpression(fe, false, codeContext);
+          ResolveFrameExpression(fe, FrameExpressionUse.Modifies, codeContext);
         }
         if (s.Body != null) {
           ResolveBlockStatement(s.Body, codeContext);
@@ -7312,7 +7306,7 @@ namespace Microsoft.Dafny
       ResolveAttributes(modifies.Attributes, null, new ResolveOpts(codeContext, true));
       if (modifies.Expressions != null) {
         foreach (FrameExpression fe in modifies.Expressions) {
-          ResolveFrameExpression(fe, false, codeContext);
+          ResolveFrameExpression(fe, FrameExpressionUse.Modifies, codeContext);
           if (fvs != null) {
             Translator.ComputeFreeVariables(fe.E, fvs);
           }
@@ -9204,6 +9198,12 @@ namespace Microsoft.Dafny
         }
         expr.Type = fnType == null ? new InferredTypeProxy() : fnType.Result;
 
+      } else if (expr is MultiSetFormingExpr) {
+        MultiSetFormingExpr e = (MultiSetFormingExpr)expr;
+        ResolveExpression(e.E, opts);
+        AddXConstraint(e.E.tok, "MultiSetConvertible", e.E.Type, "can only form a multiset from a seq or set (got {0})");
+        expr.Type = new MultiSetType(e.E.Type.AsCollectionType.Arg);
+
       } else if (expr is OldExpr) {
         OldExpr e = (OldExpr)expr;
         if (!opts.twoState) {
@@ -9212,11 +9212,15 @@ namespace Microsoft.Dafny
         ResolveExpression(e.E, opts);
         expr.Type = e.E.Type;
 
-      } else if (expr is MultiSetFormingExpr) {
-        MultiSetFormingExpr e = (MultiSetFormingExpr)expr;
-        ResolveExpression(e.E, opts);
-        AddXConstraint(e.E.tok, "MultiSetConvertible", e.E.Type, "can only form a multiset from a seq or set (got {0})");
-        expr.Type = new MultiSetType(e.E.Type.AsCollectionType.Arg);
+      } else if (expr is UnchangedExpr) {
+        var e = (UnchangedExpr)expr;
+        if (!opts.twoState) {
+          reporter.Error(MessageSource.Resolver, expr, "unchanged expressions are not allowed in this context");
+        }
+        foreach (var fe in e.Frame) {
+          ResolveFrameExpression(fe, FrameExpressionUse.Unchanged, opts.codeContext);
+        }
+        expr.Type = Type.Bool;
 
       } else if (expr is UnaryOpExpr) {
         var e = (UnaryOpExpr)expr;
@@ -9240,8 +9244,7 @@ namespace Microsoft.Dafny
             expr.Type = Type.Bool;
             break;
           case UnaryOpExpr.Opcode.Allocated:
-            // the type of e.E must be either an object or a collection of objects
-            AddXConstraint(expr.tok, "Freshable", e.E.Type, "the argument of an allocated expression must denote an object or a collection of objects (instead got {0})");
+            // the argument is allowed to have any type at all
             expr.Type = Type.Bool;
             break;
           default:
@@ -9571,7 +9574,7 @@ namespace Microsoft.Dafny
         }
 
         foreach (var read in e.Reads) {
-          ResolveFrameExpression(read, true, opts.codeContext);
+          ResolveFrameExpression(read, FrameExpressionUse.Reads, opts.codeContext);
         }
 
         ResolveExpression(e.Term, opts);
@@ -11107,6 +11110,10 @@ namespace Microsoft.Dafny
           return;
         }
 
+      } else if (expr is UnchangedExpr) {
+        reporter.Error(MessageSource.Resolver, expr, "unchanged expressions are allowed only in specification and ghost contexts");
+        return;
+
       } else if (expr is StmtExpr) {
         var e = (StmtExpr)expr;
         // ignore the statement
@@ -12086,13 +12093,12 @@ namespace Microsoft.Dafny
       } else if (expr is ApplyExpr) {
         ApplyExpr e = (ApplyExpr)expr;
         return UsesSpecFeatures(e.Function) || e.Args.Exists(UsesSpecFeatures);
-      } else if (expr is OldExpr) {
-        OldExpr e = (OldExpr)expr;
-        return UsesSpecFeatures(e.E);
+      } else if (expr is OldExpr || expr is UnchangedExpr) {
+        return true;
       } else if (expr is UnaryExpr) {
         var e = (UnaryExpr)expr;
         var unaryOpExpr = e as UnaryOpExpr;
-        if (unaryOpExpr != null && unaryOpExpr.Op == UnaryOpExpr.Opcode.Fresh) {
+        if (unaryOpExpr != null && (unaryOpExpr.Op == UnaryOpExpr.Opcode.Fresh || unaryOpExpr.Op == UnaryOpExpr.Opcode.Allocated)) {
           return true;
         }
         if (unaryOpExpr != null && unaryOpExpr.Op == UnaryOpExpr.Opcode.Allocated) {
