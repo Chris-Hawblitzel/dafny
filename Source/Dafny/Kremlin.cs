@@ -365,24 +365,133 @@ namespace Microsoft.Dafny {
         ModuleName = m_prime.Name;
       }
 
+      List<TopLevelDecl> topLevelDecls = SortTopLevelDecls(m.TopLevelDecls);
+
       // A Module is translated as a file:  string * program
       using (WriteArray()) { // start of file
         j.WriteValue(ModuleName);
         using (WriteArray()) { // start of program array
-
-          TopLevelDecl DefaultClass = null;
-          foreach (TopLevelDecl d in m.TopLevelDecls) {
-            if ((d is ClassDecl) && (d as ClassDecl).IsDefaultClass) {
-              DefaultClass = d;
-            } else {
+          foreach (TopLevelDecl d in topLevelDecls) {
             CompileTypeLevelDecl(d, wr);
-            }
-          }
-          if (DefaultClass != null) {
-            CompileTypeLevelDecl(DefaultClass, wr);
           }
         }
       } // End of file
+    }
+
+    // Sort the TopLevelDecls within a module, into dependency order.
+    List<TopLevelDecl> SortTopLevelDecls(List<TopLevelDecl> decls) {
+      List<Type> referencedTypes = new List<Type>(); // The set of types referenced by the decls
+      List<TopLevelDecl> topLevelTypes = new List<TopLevelDecl>(); // TopLevelDecl representing its type
+
+      // First pass:  for each TopLevelDecl, walk it and track the types that
+      //              it depends on.  Also track the type produced by the
+      //              TopLevelDecl, if any.
+      foreach (TopLevelDecl d in decls) {
+        SortTopLevelDeclsWorker(d, d, referencedTypes, topLevelTypes);
+      }
+
+      // Second pass:  for each type, get its TopLevelDecl, if it has one
+      //               add it to the tld list if it isn't already present
+      List<TopLevelDecl> ret = new List<TopLevelDecl>();
+      foreach (Type t in referencedTypes) {
+        if (t is UserDefinedType) {
+          var udt = (UserDefinedType)t;
+          if (udt.ResolvedClass != null) {
+            string TypeName = udt.ResolvedClass.FullName;
+
+            foreach (var tlt in topLevelTypes) {
+              if (tlt.FullName == TypeName) {
+                if (!ret.Contains(tlt)) {
+                  ret.Add(tlt);
+                }
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      // Third pass:  add the remaining TopLevelDecls from topLevelTypes, 
+      //              representing all types
+      foreach (var tlt in topLevelTypes) {
+        if (!ret.Contains(tlt)) {
+          ret.Add(tlt);
+        }
+      }
+
+      // Now fill in the remaining TopLevelDecls, for methods and functions, etc.
+      foreach (TopLevelDecl d in decls) {
+        if (!ret.Contains(d)) {
+          ret.Add(d);
+        }
+      }
+
+      return ret;
+    }
+
+    void SortTopLevelDeclsWorker(TopLevelDecl tld, Declaration d, List<Type> referencedTypes, List<TopLevelDecl> topLevelTypes) {
+        if (d is NewtypeDecl) {
+          var nt = (NewtypeDecl)d;
+          referencedTypes.Add(nt.BaseType);
+          if (tld != null) {
+            topLevelTypes.Add(tld);
+          }
+        } else if (d is DatatypeDecl) {
+          var dt = (DatatypeDecl)d;
+          foreach (var ctor in dt.Ctors) {
+            foreach (Formal arg in ctor.Formals) {
+              if (!arg.IsGhost) {
+                referencedTypes.Add(arg.Type);
+              }
+            }
+          }
+          if (tld != null) {
+            topLevelTypes.Add(tld);
+          }
+        }
+        else if (d is ClassDecl) {
+          var c = (ClassDecl)d;
+          foreach (var cd in c.InheritedMembers) {
+            if (!cd.IsGhost) {
+              SortTopLevelDeclsWorker(null, cd, referencedTypes, topLevelTypes);
+            }
+          }
+          foreach (MemberDecl member in c.Members) {
+            if (!member.IsGhost) {
+              SortTopLevelDeclsWorker(null, member, referencedTypes, topLevelTypes);
+            }
+          }
+          if (tld != null) {
+            topLevelTypes.Add(tld);
+          }
+        }
+        else if (d is MemberDecl) {
+          var m = (MemberDecl)d;
+          if (m is Field) {
+            var f = (Field)m;
+            referencedTypes.Add(f.Type);
+          }
+          else if (m is Function) {
+            var f = (Function)m;
+            foreach (Formal p in f.Formals) {
+              referencedTypes.Add(p.Type);
+            }
+            referencedTypes.Add(f.ResultType);
+          }
+          else if (m is Method) {
+            var meth = (Method)m;
+            foreach (Formal p in meth.Ins) {
+              if (!p.IsGhost) {
+                referencedTypes.Add(p.Type);
+              }
+            }
+            foreach (Formal p in meth.Outs) {
+              if (!p.IsGhost) {
+                referencedTypes.Add(p.Type);
+              }
+            }
+          }
+        }
     }
 
     void CompileTypeLevelDecl(TopLevelDecl d, TextWriter wr) {
