@@ -25,7 +25,7 @@ namespace Microsoft.Dafny {
               pr.PrintProgram(program, afterResolver);
           }
       }
-   
+
     /// <summary>
     /// Returns null on success, or an error string otherwise.
     /// </summary>
@@ -62,12 +62,18 @@ namespace Microsoft.Dafny {
           return err;
         }
       }
-
-      if (!DafnyOptions.O.DisallowIncludes) {
+      
+      if (!(DafnyOptions.O.DisallowIncludes || DafnyOptions.O.PrintIncludesMode == DafnyOptions.IncludesModes.Immediate)) {
         string errString = ParseIncludes(module, builtIns, fileNames, new Errors(reporter));
         if (errString != null) {
           return errString;
         }
+      }
+
+      if (DafnyOptions.O.PrintIncludesMode == DafnyOptions.IncludesModes.Immediate) {
+        DependencyMap dmap = new DependencyMap();
+        dmap.AddIncludes(((LiteralModuleDecl)module).ModuleDef.Includes);
+        dmap.PrintMap();
       }
 
       program = new Program(programName, module, builtIns, reporter);
@@ -95,21 +101,24 @@ namespace Microsoft.Dafny {
     // Lower-case file names before comparing them, since Windows uses case-insensitive file names
     private class IncludeComparer : IComparer<Include> {
       public int Compare(Include x, Include y) {
-        return x.fullPath.ToLower().CompareTo(y.fullPath.ToLower());
+        return x.includedFullPath.ToLower().CompareTo(y.includedFullPath.ToLower());
       }
     }
 
     public static string ParseIncludes(ModuleDecl module, BuiltIns builtIns, IList<string> excludeFiles, Errors errs) {
       SortedSet<Include> includes = new SortedSet<Include>(new IncludeComparer());
+      DependencyMap dmap = new DependencyMap();
       foreach (string fileName in excludeFiles) {
-        includes.Add(new Include(null, fileName, Path.GetFullPath(fileName)));
+        includes.Add(new Include(null, null, fileName, Path.GetFullPath(fileName)));
       }
+      dmap.AddIncludes(includes);
       bool newlyIncluded;
       do {
         newlyIncluded = false;
 
         List<Include> newFilesToInclude = new List<Include>();
-        foreach (Include include in ((LiteralModuleDecl)module).ModuleDef.Includes) {
+        dmap.AddIncludes(((LiteralModuleDecl)module).ModuleDef.Includes);
+        foreach (Include include in ((LiteralModuleDecl)module).ModuleDef.Includes) {          
           bool isNew = includes.Add(include);
           if (isNew) {
             newlyIncluded = true;
@@ -118,12 +127,17 @@ namespace Microsoft.Dafny {
         }
 
         foreach (Include include in newFilesToInclude) {
-          string ret = ParseFile(include.filename, include.tok, module, builtIns, errs, false);
+          string ret = ParseFile(include.includedFilename, include.tok, module, builtIns, errs, false);
           if (ret != null) {
             return ret;
           }
         }
       } while (newlyIncluded);
+
+
+      if (DafnyOptions.O.PrintIncludesMode != DafnyOptions.IncludesModes.None) {
+        dmap.PrintMap();
+      }
 
       return null; // Success
     }
