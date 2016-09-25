@@ -88,14 +88,14 @@ namespace Microsoft.Dafny {
     }
 
     static class KremlinAst {
-      public const string Version = "12";
+      public const string Version = "13";
 
       // InputAst.Decl
-      public const string DFunction = "DFunction";
-      public const string DTypeAlias = "DTypeAlias";
-      public const string DGlobal = "DGlobal";
-      public const string DTypeFlat = "DTypeFlat";
-      public const string DExternal = "DExternal";
+      public const string DFunction = "DFunction";        // of (typ * lident * binder list * expr)
+      public const string DTypeAlias = "DTypeAlias";      // of (lident * int * typ) (** Name, number of parameters (De Bruijn), definition. *)
+      public const string DGlobal = "DGlobal";            // of (lident * typ * expr)
+      public const string DTypeFlat = "DTypeFlat";        // (lident * (ident * (typ * bool)) list)  (** The boolean indicates if the field is mutable *)
+      public const string DExternal = "DExternal";        // of (lident * typ)
 
       // InputAst.typ
       public const string TInt = "TInt";                  // of K.width
@@ -106,6 +106,8 @@ namespace Microsoft.Dafny {
       public const string TAny = "TAny";
       public const string TArrow = "TArrow";              // of (typ * typ)   (** t1 -> t2 *)
       public const string TZ = "TZ";
+      public const string TBound = "TBound";              // of int
+      public const string TApp = "TApp";                  // of (lident * typ list)
 
       // InputAst.Expr
       public const string EBound = "EBound";              // of var
@@ -522,8 +524,9 @@ namespace Microsoft.Dafny {
         }
         using (WriteArray()) {
           j.WriteValue(KremlinAst.DTypeAlias);
-          using (WriteArray()) { //  (lident * typ)
+          using (WriteArray()) { //  (lident * int * typ)
             WriteLident(nt.FullName);
+            j.WriteValue(0); // number of parameters (De Bruijn)
             WriteTypeName(nt.BaseType);
           }
         }
