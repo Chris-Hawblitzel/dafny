@@ -1701,12 +1701,8 @@ namespace Microsoft.Dafny {
       else if (xType.IsArrayType) {
         ArrayClassDecl at = xType.AsArrayType;
         Contract.Assert(at != null);  // follows from type.IsArrayType
-        Type elType = UserDefinedType.ArrayElementType(xType);
         using (WriteArray()) {
-          j.WriteValue(KremlinAst.EBufCreateL);
-          using (WriteArray()) { // of (list of initializers)
-            WriteDefaultValue(elType);
-          }
+          j.WriteValue(KremlinAst.EAny);
         }
       }
       else if (xType.IsRefType) {
@@ -1773,12 +1769,8 @@ namespace Microsoft.Dafny {
       }
       else if (xType is SeqType) {
         Type argType = ((SeqType)xType).Arg;
-        // EBufCreateL of expr list
         using (WriteArray()) {
-          j.WriteValue(KremlinAst.EBufCreateL);
-          using (WriteArray()) {
-            WriteDefaultValue(argType);
-          }
+          j.WriteValue(KremlinAst.EAny);
         }
       }
       else if (xType is MapType) {
