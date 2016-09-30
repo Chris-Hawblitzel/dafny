@@ -75,8 +75,13 @@ namespace Microsoft.Dafny
     public bool WarnShadowing = false;
     public int DeprecationNoise = 1;
     public int Allocated = 1;
+    public bool VerifyAllModules = false;
+    public bool SeparateModuleOutput = false;
     public enum IncludesModes { None, Immediate, Transitive }
     public IncludesModes PrintIncludesMode = IncludesModes.None;
+    public int OptimizeResolution = 2;
+    public bool UseRuntimeLib = false;
+    public bool DisableScopes = false;
     public bool IronDafny = 
 #if ENABLE_IRONDAFNY 
       true
@@ -228,6 +233,14 @@ namespace Microsoft.Dafny
           WarnShadowing = true;
           return true;
 
+        case "verifyAllModules":
+          VerifyAllModules = true;
+          return true;
+
+        case "separateModuleOutput":
+          SeparateModuleOutput = true;
+          return true;
+
         case "deprecation": {
           int d = 1;
           if (ps.GetNumericArgument(ref d, 3)) {
@@ -292,6 +305,24 @@ namespace Microsoft.Dafny
             IronDafny = true;
             return true;
         }
+
+        case "optimizeResolution": {
+            int d = 2;
+            if (ps.GetNumericArgument(ref d, 3)) {
+              OptimizeResolution = d;
+            }
+            return true;
+          }
+
+        case "useRuntimeLib": {
+            UseRuntimeLib = true;
+            return true;
+          }
+
+        case "disableScopes": {
+            DisableScopes = true;
+            return true;
+          }
 
         case "printIncludes":
           if (ps.ConfirmArgumentCount(1)) {
@@ -459,6 +490,10 @@ namespace Microsoft.Dafny
                     System.Collections.Immutable.dll in the source directory to successfully 
                     compile).
                   - passes /optimize flag to csc.exe.
+  /optimizeResolution:<n>
+                0 - Resolve and translate all methods
+                1 - Translate methods only in the call graph of current verification target
+                2 (default) - As in 1, but only resolve method bodies in non-included Dafny sources
   /stats        Print interesting statistics about the Dafny files supplied.
   /funcCallGraph Print out the function call graph.  Format is: func,mod=callee*
   /warnShadowing  Emits a warning if the name of a declared variable caused another variable
@@ -495,6 +530,14 @@ namespace Microsoft.Dafny
                 5 - Assert/assume allocated(x) on all variables, even bound
                     variables in quantifiers.  This is the original Dafny
                     behavior.
+  /verifyAllModules 
+                Verify modules that come from an include directive
+  /separateModuleOutput
+                Output verification results for each module separately, rather than
+                aggregating them after they are all finished.
+  /useRuntimeLib
+                Refer to pre-built DafnyRuntime.dll in compiled assembly rather
+                than including DafnyRuntime.cs verbatim.
   /ironDafny    Enable experimental features needed to support Ironclad/Ironfleet. Use of
                 these features may cause your code to become incompatible with future
                 releases of Dafny.
@@ -507,6 +550,9 @@ namespace Microsoft.Dafny
                 Immediate prints files included by files listed on the command line
                 Transitive recurses on the files printed by Immediate
                 Immediate and Transitive will exit after printing.
+  /disableScopes
+                Treat all export sets as 'export reveal *'. i.e. don't hide function bodies
+                or type definitions during translation.
 ");
       base.Usage();  // also print the Boogie options
     }
