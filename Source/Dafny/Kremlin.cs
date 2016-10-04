@@ -88,12 +88,12 @@ namespace Microsoft.Dafny {
     }
 
     static class KremlinAst {
-      public const string Version = "13";
+      public const string Version = "14";
 
       // InputAst.Decl
-      public const string DFunction = "DFunction";        // of (typ * lident * binder list * expr)
+      public const string DFunction = "DFunction";        // of (flag list * typ * lident * binder list * expr)
       public const string DTypeAlias = "DTypeAlias";      // of (lident * int * typ) (** Name, number of parameters (De Bruijn), definition. *)
-      public const string DGlobal = "DGlobal";            // of (lident * typ * expr)
+      public const string DGlobal = "DGlobal";            // of (flag list * lident * typ * expr)
       public const string DTypeFlat = "DTypeFlat";        // (lident * (ident * (typ * bool)) list)  (** The boolean indicates if the field is mutable *)
       public const string DExternal = "DExternal";        // of (lident * typ)
 
@@ -586,7 +586,9 @@ namespace Microsoft.Dafny {
 
         using (WriteArray()) {
           j.WriteValue(KremlinAst.DFunction);
-          using (WriteArray()) { // of (typ * lident * binder list * expr)
+          using (WriteArray()) { // of (flag list * typ * lident * binder list * expr)
+            using (WriteArray()) {
+            }
             WriteTypeName(thisType); // returns type of 'this'
             WriteLident(ctor.FullName);
             using (WriteArray()) { // start of binder list
@@ -1080,7 +1082,9 @@ namespace Microsoft.Dafny {
 
       using (WriteArray()) {
         j.WriteValue(KremlinAst.DFunction);
-        using (WriteArray()) { // of (typ * lident * binder list * expr)
+        using (WriteArray()) { // of (flag list * typ * lident * binder list * expr)
+          using (WriteArray()) { // empty flag list
+          }
           WriteTypeName(f.ResultType); // typ
           WriteLident(f); // lident
           using (WriteArray()) { // start of binder list
@@ -1195,7 +1199,9 @@ namespace Microsoft.Dafny {
 
       using (WriteArray()) {
         j.WriteValue(KremlinAst.DFunction);
-        using (WriteArray()) { // of (typ * lident * binder list * expr)
+        using (WriteArray()) { // of (flag list * typ * lident * binder list * expr)
+          using (WriteArray()) { // empty flag list
+          }
           WriteMethodReturnType(m.Outs); // typ
           WriteLident(m); // lident
           using (WriteArray()) { // start of binder list
