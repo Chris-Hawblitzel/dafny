@@ -815,7 +815,7 @@ namespace Microsoft.Dafny
       var oldModuleInfo = moduleInfo;
       moduleInfo = MergeSignature(sig, systemNameInfo);
       Type.PushScope(moduleInfo.VisibilityScope);
-      ResolveOpenedImports(moduleInfo, useCompileSignatures); // opened imports do not persist
+      ResolveOpenedImports(moduleInfo, m, useCompileSignatures, this); // opened imports do not persist
       var datatypeDependencies = new Graph<IndDatatypeDecl>();
       var codatatypeDependencies = new Graph<CoDatatypeDecl>();
       int prevErrorCount = reporter.Count(ErrorLevel.Error);
@@ -1289,84 +1289,94 @@ namespace Microsoft.Dafny
       return info;
     }
 
-    public static void ResolveOpenedImports(ModuleSignature sig, bool useCompileSignatures) {
+    public static void ResolveOpenedImports(ModuleSignature sig, ModuleDefinition moduleDef, bool useCompileSignatures, Resolver resolver) {
       var declarations = sig.TopLevels.Values.ToList<TopLevelDecl>();
       var importedSigs = new HashSet<ModuleSignature>() { sig };
 
       foreach (var top in declarations) {
         if (top is ModuleDecl && ((ModuleDecl)top).Opened) {
-          ResolveOpenedImportsWorker(sig, sig.ModuleDef, (ModuleDecl)top, importedSigs, useCompileSignatures);
+            ResolveOpenedImportsWorker(sig, moduleDef, (ModuleDecl)top, importedSigs, useCompileSignatures);
         }
+      }
+
+      if (resolver != null) { //needed because ResolveOpenedImports is used statically for a refinement check
+          if (sig.TopLevels["_default"] is AmbiguousTopLevelDecl) {
+              Contract.Assert(sig.TopLevels["_default"].WhatKind == "class");
+              var cl = new DefaultClassDecl(moduleDef, sig.StaticMembers.Values.ToList(), null);
+              sig.TopLevels["_default"] = cl;
+              resolver.classMembers[cl] = cl.Members.ToDictionary(m => m.Name);
+          }
       }
     }
 
     static void ResolveOpenedImportsWorker(ModuleSignature sig, ModuleDefinition moduleDef, ModuleDecl im, HashSet<ModuleSignature> importedSigs, bool useCompileSignatures) {
-      bool useImports = true;
-      var s = GetSignatureExt(im.AccessibleSignature(useCompileSignatures), useCompileSignatures);
+        bool useImports = true;
+        var s = GetSignatureExt(im.AccessibleSignature(useCompileSignatures), useCompileSignatures);
 
-          if (importedSigs.Contains(s)) {
+        if (importedSigs.Contains(s)) {
             return; // we've already got these declarations
-          }
+        }
 
-          importedSigs.Add(s);
+        importedSigs.Add(s);
 
-          if (useImports || DafnyOptions.O.IronDafny) {
+        if (useImports || DafnyOptions.O.IronDafny) {
             // classes:
             foreach (var kv in s.TopLevels) {
-              if (!kv.Value.CanBeExported())
-                continue;
+                if (!kv.Value.CanBeExported())
+                    continue;
 
-              if (kv.Value is ModuleDecl && ((ModuleDecl)kv.Value).Opened && DafnyOptions.O.IronDafny) {
-                ResolveOpenedImportsWorker(sig, moduleDef, (ModuleDecl)kv.Value, importedSigs, useCompileSignatures);
+                if (kv.Value is ModuleDecl && ((ModuleDecl)kv.Value).Opened && DafnyOptions.O.IronDafny) {
+                    ResolveOpenedImportsWorker(sig, moduleDef, (ModuleDecl)kv.Value, importedSigs, useCompileSignatures);
                 }
 
-              // IronDafny: we need to pull the members of the opened module's _default class in so that they can be merged.
-              if (useImports || string.Equals(kv.Key, "_default", StringComparison.InvariantCulture)) {
-                TopLevelDecl d;
-                if (sig.TopLevels.TryGetValue(kv.Key, out d)) {
-                    sig.TopLevels[kv.Key] = AmbiguousTopLevelDecl.Create(moduleDef, d, kv.Value);
-                } else {
-                  sig.TopLevels.Add(kv.Key, kv.Value);
+                // IronDafny: we need to pull the members of the opened module's _default class in so that they can be merged.
+                if (useImports || string.Equals(kv.Key, "_default", StringComparison.InvariantCulture)) {
+                    TopLevelDecl d;
+                    if (sig.TopLevels.TryGetValue(kv.Key, out d)) {
+                        sig.TopLevels[kv.Key] = AmbiguousTopLevelDecl.Create(moduleDef, d, kv.Value);
+                    } else {
+                        sig.TopLevels.Add(kv.Key, kv.Value);
+                    }
                 }
-              }
             }
 
-          if (useImports) {
-            // constructors:
-            foreach (var kv in s.Ctors) {
-              Tuple<DatatypeCtor, bool> pair;
-              if (sig.Ctors.TryGetValue(kv.Key, out pair)) {
-                // The same ctor can be imported from two different imports (e.g "diamond" imports), in which case, 
-                // they are not duplicates.
-                if (!Object.ReferenceEquals(kv.Value.Item1, pair.Item1) &&
-                    (!DafnyOptions.O.IronDafny ||
-                        (!Object.ReferenceEquals(kv.Value.Item1.ClonedFrom, pair.Item1) &&
-                        !Object.ReferenceEquals(kv.Value.Item1, pair.Item1.ClonedFrom)))) {
-                  // mark it as a duplicate
-                  sig.Ctors[kv.Key] = new Tuple<DatatypeCtor, bool>(pair.Item1, true);
+            if (useImports) {
+                // constructors:
+                foreach (var kv in s.Ctors) {
+                    Tuple<DatatypeCtor, bool> pair;
+                    if (sig.Ctors.TryGetValue(kv.Key, out pair)) {
+                        // The same ctor can be imported from two different imports (e.g "diamond" imports), in which case, 
+                        // they are not duplicates.
+                        if (!Object.ReferenceEquals(kv.Value.Item1, pair.Item1) &&
+                            (!DafnyOptions.O.IronDafny ||
+                                (!Object.ReferenceEquals(kv.Value.Item1.ClonedFrom, pair.Item1) &&
+                                !Object.ReferenceEquals(kv.Value.Item1, pair.Item1.ClonedFrom)))) {
+                            // mark it as a duplicate
+                            sig.Ctors[kv.Key] = new Tuple<DatatypeCtor, bool>(pair.Item1, true);
+                        }
+                    } else {
+                        // add new
+                        sig.Ctors.Add(kv.Key, kv.Value);
+                    }
                 }
-              } else {
-                // add new
-                sig.Ctors.Add(kv.Key, kv.Value);
-              }
             }
-          }
 
-          if (useImports || DafnyOptions.O.IronDafny) {
-            // static members:
-            foreach (var kv in s.StaticMembers) {
-              if (!kv.Value.CanBeExported())
-                continue;
+            if (useImports || DafnyOptions.O.IronDafny) {
+                // static members:
+                foreach (var kv in s.StaticMembers) {
+                    if (!kv.Value.CanBeExported())
+                        continue;
 
-              MemberDecl md;
-              if (sig.StaticMembers.TryGetValue(kv.Key, out md)) {
-                  sig.StaticMembers[kv.Key] = AmbiguousMemberDecl.Create(moduleDef, md, kv.Value);
-              } else {
-                // add new
-                sig.StaticMembers.Add(kv.Key, kv.Value);
-              }
+                    MemberDecl md;
+                    if (sig.StaticMembers.TryGetValue(kv.Key, out md)) {
+                        sig.StaticMembers[kv.Key] = AmbiguousMemberDecl.Create(moduleDef, md, kv.Value);
+                    } else {
+                        // add new
+                        sig.StaticMembers.Add(kv.Key, kv.Value);
+                    }
+                }
             }
-          }
+            
         }
     }
 
@@ -2625,17 +2635,17 @@ namespace Microsoft.Dafny
     /// more specific) and returns "false".
     /// Note, if in doubt, this method can return "true", because the constraints will be checked for sure at a later stage.
     /// </summary>
-    private bool ConstrainSubtypeRelation(Type super, Type sub, TypeConstraint.ErrorMsg errMsg) {
+    private bool ConstrainSubtypeRelation(Type super, Type sub, TypeConstraint.ErrorMsg errMsg, bool keepConstraints = false) {
       Contract.Requires(sub != null);
       Contract.Requires(super != null);
       Contract.Requires(errMsg != null);
-      super = super.NormalizeExpand().StripSubsetConstraints();
-      sub = sub.NormalizeExpand().StripSubsetConstraints();
+      super = keepConstraints ? super.NormalizeExpandKeepConstraints() : super.NormalizeExpand().StripSubsetConstraints();
+      sub = keepConstraints ? sub.NormalizeExpandKeepConstraints() : sub.NormalizeExpand().StripSubsetConstraints();
       var c = new TypeConstraint(super, sub, errMsg);
       AllTypeConstraints.Add(c);
-      return ConstrainSubtypeRelation_Aux(super, sub, c);
+      return ConstrainSubtypeRelation_Aux(super, sub, c, keepConstraints);
     }
-    private bool ConstrainSubtypeRelation_Aux(Type super, Type sub, TypeConstraint c) {
+    private bool ConstrainSubtypeRelation_Aux(Type super, Type sub, TypeConstraint c, bool keepConstraints = false) {
       Contract.Requires(sub != null);
       Contract.Requires(!(sub is TypeProxy) || ((TypeProxy)sub).T == null);  // caller is expected to have called .NormalizeExpand
       Contract.Requires(super != null);
@@ -2660,12 +2670,12 @@ namespace Microsoft.Dafny
       } else if (sub is TypeProxy) {
         var proxy = (TypeProxy)sub;
         proxy.AddSupertype(c);
-        AssignKnownEnd(proxy);
+        AssignKnownEnd(proxy, keepConstraints);
         return true;
       } else if (super is TypeProxy) {
         var proxy = (TypeProxy)super;
         proxy.AddSubtype(c);
-        AssignKnownEnd(proxy);
+        AssignKnownEnd(proxy, keepConstraints);
         return true;
       } else {
         // two non-proxy types
@@ -2817,7 +2827,7 @@ namespace Microsoft.Dafny
     }
 
     int _recursionDepth = 0;
-    private bool AssignProxyAndHandleItsConstraints(TypeProxy proxy, Type t) {
+    private bool AssignProxyAndHandleItsConstraints(TypeProxy proxy, Type t, bool keepConstraints = false) {
       Contract.Requires(proxy != null);
       Contract.Requires(proxy.T == null);
       Contract.Requires(t != null);
@@ -2827,7 +2837,7 @@ namespace Microsoft.Dafny
         Contract.Assume(false);  // possible infinite recursion
       }
       _recursionDepth++;
-      var b = AssignProxyAndHandleItsConstraints_aux(proxy, t);
+      var b = AssignProxyAndHandleItsConstraints_aux(proxy, t, keepConstraints);
       _recursionDepth--;
       return b;
     }
@@ -2845,14 +2855,14 @@ namespace Microsoft.Dafny
     /// If anything is found to be infeasible, "false" is returned (and the propagation may be interrupted);
     /// otherwise, "true" is returned.
     /// </summary>
-    private bool AssignProxyAndHandleItsConstraints_aux(TypeProxy proxy, Type t) {
+    private bool AssignProxyAndHandleItsConstraints_aux(TypeProxy proxy, Type t, bool keepConstraints = false) {
       Contract.Requires(proxy != null);
       Contract.Requires(proxy.T == null);
       Contract.Requires(t != null);
       Contract.Requires(!(t is TypeProxy));
       Contract.Requires(!(t is ArtificialType));
 
-      t = t.NormalizeExpand();
+      t = keepConstraints ? t.NormalizeExpandKeepConstraints() : t.NormalizeExpand();
       // never violate the type constraint of a literal expression
       var followedRequestedAssignment = true;
       foreach (var su in proxy.Supertypes) {
@@ -2931,6 +2941,7 @@ namespace Microsoft.Dafny
         errorMsg.FlagAsError();
         return false;
       }
+      bool keepConstraints = KeepConstraints(super, sub);
       var p = polarities.Count;
       Contract.Assert(p == super.TypeArgs.Count);  // postcondition of ConstrainTypeHead
       Contract.Assert(p == 0 || sub.TypeArgs.Count == super.TypeArgs.Count);  // postcondition of ConstrainTypeHead
@@ -2943,12 +2954,12 @@ namespace Microsoft.Dafny
           "invariant type parameter{0} would require {1} = {2}",
           tp, super.TypeArgs[i], sub.TypeArgs[i]);
         if (pol >= 0) {
-          if (!ConstrainSubtypeRelation(super.TypeArgs[i], sub.TypeArgs[i], errMsg)) {
+          if (!ConstrainSubtypeRelation(super.TypeArgs[i], sub.TypeArgs[i], errMsg, keepConstraints)) {
             return false;
           }
         }
         if (pol <= 0) {
-          if (!ConstrainSubtypeRelation(sub.TypeArgs[i], super.TypeArgs[i], errMsg)) {
+          if (!ConstrainSubtypeRelation(sub.TypeArgs[i], super.TypeArgs[i], errMsg, keepConstraints)) {
             return false;
           }
         }
@@ -3064,6 +3075,39 @@ namespace Microsoft.Dafny
         } else {
           return null;
         }
+      }
+    }
+    private bool KeepConstraints(Type super, Type sub) {
+      Contract.Requires(super != null && !(super is TypeProxy));
+      Contract.Requires(sub != null && !(sub is TypeProxy));
+      if (super is IntVarietiesSupertype) {
+        return false;
+      } else if (super is RealVarietiesSupertype) {
+        return false;
+      }
+      switch (TypeProxy.GetFamily(super)) {
+        case TypeProxy.Family.Bool:
+        case TypeProxy.Family.Char:
+        case TypeProxy.Family.IntLike:
+        case TypeProxy.Family.RealLike:
+        case TypeProxy.Family.BitVector:
+          return false;
+        case TypeProxy.Family.ValueType:
+        case TypeProxy.Family.Ref:
+        case TypeProxy.Family.Opaque:
+          break;  // more elaborate work below
+        case TypeProxy.Family.Unknown:
+          return false;
+      }
+      if (super is SetType || super is SeqType || super is MultiSetType || super is MapType) {
+        return true;
+      } else if (super is ArrowType) {
+        return false;
+      } else if (super is ObjectType) {
+        return false;
+      } else {
+        // super is UserDefinedType
+        return true;
       }
     }
 
@@ -3833,41 +3877,43 @@ namespace Microsoft.Dafny
     /// <summary>
     /// Returns true if anything happened.
     /// </summary>
-    bool AssignKnownEnd(TypeProxy proxy) {
+    bool AssignKnownEnd(TypeProxy proxy, bool keepConstraints = false) {
       Contract.Requires(proxy == null || proxy.T == null);  // caller is supposed to have called NormalizeExpand
       if (proxy == null) {
         // nothing to do
         return false;
       }
       // ----- first, go light; also, prefer subtypes over supertypes
-      foreach (var su in proxy.Subtypes) {
+      IEnumerable<Type> subTypes = keepConstraints ? proxy.SubtypesKeepConstraints : proxy.Subtypes;
+      foreach (var su in subTypes) {
         bool isRoot, isLeaf, headRoot, headLeaf;
         CheckEnds(su, out isRoot, out isLeaf, out headRoot, out headLeaf);
         Contract.Assert(!isRoot || headRoot);  // isRoot ==> headRoot
         if (isRoot) {  // TODO: this is just a special case of the "else if" -- get rid of this check
-          AssignProxyAndHandleItsConstraints(proxy, su);
+          AssignProxyAndHandleItsConstraints(proxy, su, keepConstraints);
           return true;
         } else if (headRoot) {
           if (Reaches(su, proxy, 1, new HashSet<TypeProxy>())) {
             // adding a constraint here would cause a bad cycle, so we don't
           } else {
-            AssignProxyAndHandleItsConstraints(proxy, TypeProxy.HeadWithProxyArgs(su));
+            AssignProxyAndHandleItsConstraints(proxy, TypeProxy.HeadWithProxyArgs(su), keepConstraints);
             return true;
           }
         }
       }
-      foreach (var su in proxy.Supertypes) {
+      IEnumerable<Type> superTypes = keepConstraints ? proxy.SupertypesKeepConstraints : proxy.Supertypes;
+      foreach (var su in superTypes) {
         bool isRoot, isLeaf, headRoot, headLeaf;
         CheckEnds(su, out isRoot, out isLeaf, out headRoot, out headLeaf);
         Contract.Assert(!isLeaf || headLeaf);  // isLeaf ==> headLeaf
         if (isLeaf) {  // TODO: this is just a special case of the "else if" -- get rid of this check
-          AssignProxyAndHandleItsConstraints(proxy, su);
+          AssignProxyAndHandleItsConstraints(proxy, su, keepConstraints);
           return true;
         } else if (headLeaf) {
           if (Reaches(su, proxy, -1, new HashSet<TypeProxy>())) {
             // adding a constraint here would cause a bad cycle, so we don't
           } else {
-            AssignProxyAndHandleItsConstraints(proxy, TypeProxy.HeadWithProxyArgs(su));
+            AssignProxyAndHandleItsConstraints(proxy, TypeProxy.HeadWithProxyArgs(su), keepConstraints);
             return true;
           }
         }
