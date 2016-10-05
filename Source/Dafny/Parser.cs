@@ -82,7 +82,7 @@ public class Parser {
   const bool _T = true;
   const bool _x = false;
   const int minErrDist = 2;
-  
+
   public Scanner scanner;
   public Errors  errors;
 
@@ -675,7 +675,7 @@ int StringToInt(string s, int defaultValue, string errString) {
     Contract.Requires(msg != null);
     errors.SemErr(tok, msg);
   }
-  
+
   void Get () {
     for (;;) {
       t = la;
@@ -685,15 +685,15 @@ int StringToInt(string s, int defaultValue, string errString) {
       la = t;
     }
   }
-  
+
   void Expect (int n) {
     if (la.kind==n) Get(); else { SynErr(n); }
   }
-  
+
   bool StartOf (int s) {
     return set[s, la.kind];
   }
-  
+
   void ExpectWeak (int n, int follow) {
     if (la.kind == n) Get();
     else {
@@ -717,7 +717,7 @@ int StringToInt(string s, int defaultValue, string errString) {
     }
   }
 
-  
+
 	void Dafny() {
 		List<MemberDecl/*!*/> membersDefaultClass = new List<MemberDecl/*!*/>();
 		// to support multiple files, create a default module only if theModule is null
@@ -5007,13 +5007,13 @@ List<Expression> decreases, ref Attributes decAttrs, ref Attributes modAttrs, st
 
   public void Parse() {
     la = new Token();
-    la.val = "";    
+    la.val = "";
     Get();
 		Dafny();
 		Expect(0);
 
   }
-  
+
   static readonly bool[,] set = {
 		{_T,_T,_T,_T, _T,_x,_x,_x, _x,_T,_x,_T, _x,_x,_x,_x, _x,_x,_x,_x, _T,_T,_x,_x, _T,_x,_x,_x, _x,_x,_T,_x, _x,_T,_T,_T, _x,_x,_x,_T, _T,_x,_x,_T, _T,_T,_x,_T, _T,_T,_T,_T, _x,_x,_T,_x, _x,_x,_x,_x, _x,_x,_x,_T, _x,_x,_T,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_T, _T,_T,_T,_T, _x,_x,_x,_T, _x,_x,_T,_T, _T,_T,_T,_T, _T,_T,_T,_x, _x,_T,_T,_T, _T,_T,_x,_T, _T,_T,_T,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_T,_T, _T,_T,_T,_T, _T,_T,_x,_x, _x},
 		{_x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_T,_T,_T, _T,_T,_T,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_T,_T,_T, _T,_T,_T,_x, _T,_x,_x,_T, _x,_x,_x,_T, _T,_T,_T,_T, _T,_T,_x,_T, _x,_x,_T,_T, _T,_T,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x},
