@@ -334,7 +334,7 @@ namespace Microsoft.Dafny {
           // Compile modules in order by height (program.Modules is sorted this way but in
           // reverse order). Compile SystemModule last, as it has height -1 and is not in 
           // the .Modules list.
-          List<ModuleDefinition> sortedModules = new List<ModuleDefinition>(program.Modules);
+          List<ModuleDefinition> sortedModules = new List<ModuleDefinition>(program.Modules());
           sortedModules.Reverse();
 
           int previousHeight = sortedModules[0].Height+1;
@@ -740,7 +740,7 @@ namespace Microsoft.Dafny {
     public bool HasMain(Program program) {
       Method mainMethod = null;
       bool hasMain = false;
-      foreach (var module in program.Modules) {
+      foreach (var module in program.Modules()) {
         if (module.IsAbstract) {
           // the purpose of an abstract module is to skip compilation
           continue;
