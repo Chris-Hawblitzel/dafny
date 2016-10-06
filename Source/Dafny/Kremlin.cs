@@ -88,7 +88,7 @@ namespace Microsoft.Dafny {
     }
 
     static class KremlinAst {
-      public const string Version = "14";
+      public const string Version = "15";
 
       // InputAst.Decl
       public const string DFunction = "DFunction";        // of (flag list * typ * lident * binder list * expr)
