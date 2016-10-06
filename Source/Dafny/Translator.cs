@@ -108,6 +108,7 @@ namespace Microsoft.Dafny {
       if (flags == null) {
         flags = new TranslatorFlags();
       }
+      this.flags = flags;
       Bpl.Program boogieProgram = ReadPrelude();
       if (boogieProgram != null) {
         sink = boogieProgram;
@@ -10437,6 +10438,8 @@ namespace Microsoft.Dafny {
         return u is MapType && ((MapType)t).Finite == ((MapType)u).Finite;
       } else if (t is ArrowType) {
         return u is ArrowType;
+      } else if (t is BitvectorType) {
+        return u is BitvectorType;
       } else {
         Contract.Assert(t.IsTypeParameter || t.IsInternalTypeSynonym);
         return false;  // don't consider any type parameters to be the same (since we have no comparison function for them anyway)
@@ -10552,6 +10555,12 @@ namespace Microsoft.Dafny {
         eq = Bpl.Expr.False;
         less = Bpl.Expr.False;
         atmost = Bpl.Expr.False;
+
+      } else if (ty0 is BitvectorType) {
+        BitvectorType bv = (BitvectorType)ty0;
+        eq = Bpl.Expr.Eq(e0, e1);
+        less = FunctionCall(tok, "lt_bv" + bv.Width, Bpl.Type.Bool, e0, e1);
+        atmost = FunctionCall(tok, "ge_bv" + bv.Width, Bpl.Type.Bool, e0, e1);
 
       } else {
         // reference type
