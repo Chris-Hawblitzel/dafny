@@ -2900,23 +2900,23 @@ namespace Microsoft.Dafny
       CheckEnds(t, out isRoot, out isLeaf, out headRoot, out headLeaf);
       // propagate up
       foreach (var c in proxy.SupertypeConstraints) {
-        var u = c.Super.NormalizeExpand();
+        var u = keepConstraints ? c.Super.NormalizeExpandKeepConstraints() : c.Super.NormalizeExpand();
         if (!(u is TypeProxy)) {
           ImposeSubtypingConstraint(u, t, c.errorMsg);
         } else if (isRoot) {
           // If t is a root, we might as well constrain u now.  Otherwise, we'll wait until the .Subtype constraint of u is dealt with.
-          AssignProxyAndHandleItsConstraints((TypeProxy)u, t);
+          AssignProxyAndHandleItsConstraints((TypeProxy)u, t, keepConstraints);
         }
       }
       // propagate down
       foreach (var c in proxy.SubtypeConstraints) {
-        var u = c.Sub.NormalizeExpand();
+        var u = keepConstraints ? c.Sub.NormalizeExpandKeepConstraints() : c.Sub.NormalizeExpand();
         Contract.Assert(!TypeProxy.IsSupertypeOfLiteral(u));  // these should only appear among .Supertypes
         if (!(u is TypeProxy)) {
           ImposeSubtypingConstraint(t, u, c.errorMsg);
         } else if (isLeaf) {
           // If t is a leaf (no pun intended), we might as well constrain u now.  Otherwise, we'll wait until the .Supertype constraint of u is dealt with.
-          AssignProxyAndHandleItsConstraints((TypeProxy)u, t);
+          AssignProxyAndHandleItsConstraints((TypeProxy)u, t, keepConstraints); 
         }
       }
 
