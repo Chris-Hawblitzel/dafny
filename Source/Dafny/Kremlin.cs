@@ -88,14 +88,18 @@ namespace Microsoft.Dafny {
     }
 
     static class KremlinAst {
-      public const string Version = "15";
+      public const string Version = "16";
 
       // InputAst.Decl
       public const string DFunction = "DFunction";        // of (flag list * typ * lident * binder list * expr)
       public const string DTypeAlias = "DTypeAlias";      // of (lident * int * typ) (** Name, number of parameters (De Bruijn), definition. *)
       public const string DGlobal = "DGlobal";            // of (flag list * lident * typ * expr)
-      public const string DTypeFlat = "DTypeFlat";        // (lident * (ident * (typ * bool)) list)  (** The boolean indicates if the field is mutable *)
+      public const string DTypeFlat = "DTypeFlat";        // (lident * fields_t)  (** The boolean indicates if the field is mutable *)
       public const string DExternal = "DExternal";        // of (lident * typ)
+      public const string DTypeVariant = "DTypeVariant";  // of (lident * branches_t)
+
+      // fields_t = (ident * (typ * bool)) list
+      // branches_t = (ident * fields_t) list
 
       // InputAst.typ
       public const string TInt = "TInt";                  // of K.width
@@ -137,11 +141,16 @@ namespace Microsoft.Dafny {
       public const string EField = "EField";              // of (lident * expr * ident)         (** contains the name of the type we're selecting from *)
       public const string EWhile = "EWhile";              //  of (expr * expr)
       public const string EBufCreateL = "EBufCreateL";    // of expr list
+      public const string ETuple = "ETuple";              // of expr list
+      public const string ECons = "ECons";                // of (lident * ident * expr list)
 
       // InputAst.pattern
       public const string PUnit = "PUnit";
       public const string PBool = "PBool";                // of bool
       public const string PVar = "PVar";                  // of binder
+      public const string PCons = "PCons";                // of (ident * pattern list)
+      public const string PTuple = "PTuple";              // of pattern list
+      public const string PRecord = "PRecord";            // of (ident * pattern) list
 
       // Constant.width
       public const string UInt8 = "UInt8";
