@@ -1276,7 +1276,9 @@ namespace Microsoft.Dafny {
             j.WriteValue(KremlinAst.ESequence);
             using (WriteArray()) {
               List<Formal> Outs = new List<Formal>(m.Outs);
-              WriteEPushFrame();
+              if (!(m is Constructor)) {
+                WriteEPushFrame();
+              }
               foreach (Formal p in Outs) { // bugbug: this now needs to be hoisted out and made recursive
                 if (!p.IsGhost) {
                   // ELet v in { Stmt 
@@ -1303,7 +1305,9 @@ namespace Microsoft.Dafny {
               TrStmtList(m.Body.Body);
               Contract.Assert(enclosingMethod == m);
               enclosingMethod = null;
-              WriteEPopFrame();
+              if (!(m is Constructor)) {
+                WriteEPopFrame();
+              }
               if (m.Outs.Count != 0) {
                 var ReturnValue = m.Outs[0];
                 WriteEBound(ReturnValue);
