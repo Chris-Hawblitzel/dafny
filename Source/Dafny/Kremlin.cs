@@ -552,9 +552,10 @@ namespace Microsoft.Dafny {
         }
         else {
           // Define the type
-          CompileDatatypeStruct(dt);
-          // Generate constructor functions for that type
-          CompileDatatypeConstructors(dt);
+          if (!CompileDatatypeStruct(dt)) {
+            // Generate constructor functions for that type, if it is a struct rather than an enum
+            CompileDatatypeConstructors(dt);
+          }
         }
       }
       else if (d is IteratorDecl) {
@@ -666,36 +667,71 @@ namespace Microsoft.Dafny {
       }
     }
 
-    void CompileDatatypeStruct(DatatypeDecl dt) {
+    bool ShouldBeEnum(DatatypeDecl dt) {
+      foreach (DatatypeCtor ctor in dt.Ctors) {
+        foreach (Formal arg in ctor.Formals) {
+          return false;
+        }
+      }
+      // Returns true only if all Ctors have zero formals, ghost or otherwise
+      return true;
+    }
+
+    // Returns true if the DataTypeDecl was compiled as a DTypeVariant (an 
+    // enum), or false if a struct.
+    bool CompileDatatypeStruct(DatatypeDecl dt) {
       Contract.Requires(dt != null);
 
-      foreach (DatatypeCtor ctor in dt.Ctors) {
-        WriteToken(ctor.tok);
+      if (ShouldBeEnum(dt)) {
+        WriteToken(dt.tok);
         using (WriteArray()) {
-          j.WriteValue(KremlinAst.DTypeFlat); // of (lident * (ident * typ) list)
+          j.WriteValue(KremlinAst.DTypeVariant); // (lident * branches_t)
           using (WriteArray()) {
-            WriteLident(dt.FullName); // lident
-            using (WriteArray()) { // list
-              int i = 0;
-              foreach (Formal arg in ctor.Formals) {
-                if (arg.IsGhost) {
-                  continue;
-                }
-                Formatting old = j.Formatting;
-                j.Formatting = Formatting.None;
-                using (WriteArray()) { // (ident * (typ * bool))
-                  j.WriteValue(FormalName(arg, i));
+            WriteLident(dt.FullName);
+            using (WriteArray()) { // branches_t = (ident * fields_t) list
+                foreach (DatatypeCtor ctor in dt.Ctors) {
                   using (WriteArray()) {
-                    WriteTypeName(arg.Type); // bugbug: for buffer/array types, how should this specify the length?
-                    j.WriteValue(true); // mutable
+                  j.WriteValue(ctor.Name);
+                  using (WriteArray()) {
+                    // No fields
                   }
-                  i++;
-                  j.Formatting = old;
                 }
               }
             }
           }
         }
+        return true;
+      }
+      else {
+        foreach (DatatypeCtor ctor in dt.Ctors) {
+          WriteToken(ctor.tok);
+          using (WriteArray()) {
+            j.WriteValue(KremlinAst.DTypeFlat); // of (lident * (ident * typ) list)
+            using (WriteArray()) {
+              WriteLident(dt.FullName); // lident
+              using (WriteArray()) { // list
+                int i = 0;
+                foreach (Formal arg in ctor.Formals) {
+                  if (arg.IsGhost) {
+                    continue;
+                  }
+                  Formatting old = j.Formatting;
+                  j.Formatting = Formatting.None;
+                  using (WriteArray()) { // (ident * (typ * bool))
+                    j.WriteValue(FormalName(arg, i));
+                    using (WriteArray()) {
+                      WriteTypeName(arg.Type); // bugbug: for buffer/array types, how should this specify the length?
+                      j.WriteValue(true); // mutable
+                    }
+                    i++;
+                    j.Formatting = old;
+                  }
+                }
+              }
+            }
+          }
+        }
+        return false;
       }
     }
 
