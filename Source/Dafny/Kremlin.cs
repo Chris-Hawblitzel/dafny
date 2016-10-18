@@ -252,6 +252,9 @@ namespace Microsoft.Dafny {
         var n = l.First;
         int i = 0;
         j.WriteComment("VariableTracker ========");
+        if (n == null) {
+          return;
+        }
         do {
           j.WriteComment(string.Format(" {0}: {1} ", i, n.Value.DisplayName));
           n = n.Next;
