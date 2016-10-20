@@ -456,10 +456,13 @@ namespace Microsoft.Dafny
       }
 
       // compile the program into an assembly
-      if (!completeProgram || DafnyOptions.O.Kremlin)
+      if (!completeProgram)
       {
         // don't compile
         return false;
+      } else if (DafnyOptions.O.Kremlin)
+      {
+        return true;
       }
       else if (!CodeDomProvider.IsDefinedLanguage("CSharp"))
       {
