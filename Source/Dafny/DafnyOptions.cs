@@ -75,6 +75,7 @@ namespace Microsoft.Dafny
     public bool WarnShadowing = false;
     public int DeprecationNoise = 1;
     public int Allocated = 1;
+    public bool Kremlin = false; // True emits a Kremlin AST in place of C# code
     public bool VerifyAllModules = false;
     public bool SeparateModuleOutput = false;
     public enum IncludesModes { None, Immediate, Transitive }
@@ -295,6 +296,11 @@ namespace Microsoft.Dafny
             Optimize = true;
             return true;
         }
+
+        case "kremlin": {
+            Kremlin = true;
+            return true;
+          }
 
         case "noIronDafny": {
             IronDafny = false;
@@ -530,6 +536,7 @@ namespace Microsoft.Dafny
                 5 - Assert/assume allocated(x) on all variables, even bound
                     variables in quantifiers.  This is the original Dafny
                     behavior.
+  /kremlin      Emit Kremlin AST instead of C# code
   /verifyAllModules 
                 Verify modules that come from an include directive
   /separateModuleOutput
