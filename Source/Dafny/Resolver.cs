@@ -285,6 +285,11 @@ namespace Microsoft.Dafny
       }
 
       rewriters = new List<IRewriter>();
+
+      if (!DafnyOptions.O.VerifyAllModules && DafnyOptions.O.OptimizeResolution >= 2) {
+        rewriters.Add(new OptimizedLemmaBodiesRewriter(reporter));
+      }
+
       refinementTransformer = new RefinementTransformer(prog);
       rewriters.Add(refinementTransformer);
       rewriters.Add(new AutoContractsRewriter(reporter));
@@ -6673,9 +6678,7 @@ namespace Microsoft.Dafny
             var k = com.PrefixLemma.Ins[0];
             scope.Push(k.Name, k);  // we expect no name conflict for _k
           }
-          if (!((m is Lemma || m is TwoStateLemma) && m.tok is IncludeToken)) {
-            ResolveBlockStatement(m.Body, m);
-          }
+          ResolveBlockStatement(m.Body, m);
           SolveAllTypeConstraints();
         }
 

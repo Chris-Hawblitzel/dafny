@@ -1,4 +1,7 @@
 
+Verifying CheckWellformed$$_0_M0.C.M ...
+  [0 proof obligations]  verified
+
 Verifying Impl$$_0_M0.C.M ...
   [4 proof obligations]  verified
 
@@ -21,6 +24,9 @@ Execution trace:
     (0,0): anon0
     (0,0): anon7_Else
 
+Verifying CheckWellformed$$_1_M1.C.M ...
+  [0 proof obligations]  verified
+
 Verifying Impl$$_1_M1.C.M ...
   [1 proof obligation]  verified
 
@@ -34,4 +40,10 @@ Execution trace:
     (0,0): anon11_Then
     (0,0): anon8
 
-Dafny program verifier finished with 3 verified, 3 errors
+Verifying CheckWellformed$$_1_M1.C.Q ...
+  [0 proof obligations]  verified
+
+Verifying CheckWellformed$$_1_M1.C.R ...
+  [0 proof obligations]  verified
+
+Dafny program verifier finished with 7 verified, 3 errors
