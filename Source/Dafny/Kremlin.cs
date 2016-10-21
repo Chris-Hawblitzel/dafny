@@ -88,14 +88,18 @@ namespace Microsoft.Dafny {
     }
 
     static class KremlinAst {
+#if GENERATE_V17
+      public const string Version = "17";
+#else
       public const string Version = "16";
+#endif
 
       // InputAst.Decl
-      public const string DFunction = "DFunction";        // of (flag list * typ * lident * binder list * expr)
+      public const string DFunction = "DFunction";        // of (CallingConvention.t option * flag list * typ * lident * binder list * expr)
       public const string DTypeAlias = "DTypeAlias";      // of (lident * int * typ) (** Name, number of parameters (De Bruijn), definition. *)
       public const string DGlobal = "DGlobal";            // of (flag list * lident * typ * expr)
       public const string DTypeFlat = "DTypeFlat";        // (lident * fields_t)  (** The boolean indicates if the field is mutable *)
-      public const string DExternal = "DExternal";        // of (lident * typ)
+      public const string DExternal = "DExternal";        // of (CallingConvention.t option * lident * typ)
       public const string DTypeVariant = "DTypeVariant";  // of (lident * branches_t)
 
       // fields_t = (ident * (typ * bool)) list
@@ -162,6 +166,11 @@ namespace Microsoft.Dafny {
       public const string Int32 = "Int32";
       public const string Int64 = "Int64";
       public const string Bool = "Bool";
+
+      // CallingConvention.t
+      public const string StdCall = "StdCall";
+      public const string CDecl = "CDecl";
+      public const string FastCall = "FastCall";
     }
 
 
@@ -330,13 +339,6 @@ namespace Microsoft.Dafny {
       j.Formatting = Formatting.Indented;
       j.Indentation = 1;
       using (WriteArray()) { // Entire contents is an array - type binary_format
-        // v6 = first target from Dafny
-        // v7 add EAbort, EIfThenElse/EMatch (adds *typ), add EAny
-        // v8 = EReturn and changes to DFunction/DTypeAlias/DGlobal (from ident to lident)
-        // v9 = DTypeFloat/EFlat/EField
-        // v10 = change to EOpen
-        // v11 = removed type from EIfThenElse, removed lident from EFlat and EField.  Binder change.
-        // v12 = DTypeFlat supports mutable fields
         j.WriteRawValue(KremlinAst.Version); // binary_format = version * file list
         using (WriteArray()) { // start of file list
 
@@ -531,8 +533,7 @@ namespace Microsoft.Dafny {
             nt.CompileName == "byte") {
           // Skip SHA256 types.s.dfy definitions of native types.  They are unused, but
           // are defined in terms of BigInteger, which Kremlin does not support.
-          j.WriteComment("Skipping types.s.dfy definition of " + nt.CompileName);
-          return;
+          j.WriteComment("Allowing types.s.dfy definition of " + nt.CompileName);
         }
         using (WriteArray()) {
           j.WriteValue(KremlinAst.DTypeAlias);
@@ -599,7 +600,8 @@ namespace Microsoft.Dafny {
 
         using (WriteArray()) {
           j.WriteValue(KremlinAst.DFunction);
-          using (WriteArray()) { // of (flag list * typ * lident * binder list * expr)
+          using (WriteArray()) { // of (CallingConvention.t option * flag list * typ * lident * binder list * expr)
+            WriteDefaultCallingConvention();
             using (WriteArray()) {
             }
             WriteTypeName(thisType); // returns type of 'this'
@@ -1172,6 +1174,36 @@ namespace Microsoft.Dafny {
       WriteExternal(f, typeList);
     }
 
+    bool IsUnsupportedFunction(string Name, Type Result, List<Formal> Formals) {
+      if (IsUnsupportedType(Result)) {
+        j.WriteComment("Ignoring function " + Name + " due to unsupported return type");
+        return true;
+      }
+      foreach (var f in Formals) {
+        if (!f.IsGhost && IsUnsupportedType(f.Type)) {
+          j.WriteComment("Ignoring function " + Name + " due to unsupported formal argument type");
+          return true;
+        }
+      }
+      return false;
+    }
+
+    bool IsUnsupportedMethod(string Name, List<Formal> Outs, List<Formal> Ins) {
+      foreach (var f in Outs) {
+        if (!f.IsGhost && IsUnsupportedType(f.Type)) {
+          j.WriteComment("Ignoring method " + Name + " due to unsupported out type");
+          return true;
+        }
+      }
+      foreach (var f in Ins) {
+        if (!f.IsGhost && IsUnsupportedType(f.Type)) {
+          j.WriteComment("Ignoring method " + Name + " due to unsupported in type");
+          return true;
+        }
+      }
+      return false;
+    }
+
     private void CompileFunction(Function f) {
       Contract.Assert(f != null);
       Contract.Assert(f.Body != null);
@@ -1183,10 +1215,14 @@ namespace Microsoft.Dafny {
         j.WriteComment("BUGBUG: Type args not supported:  omitting function " + f.FullCompileName);
         return;
       }
+      if (IsUnsupportedFunction(f.Name, f.ResultType, f.Formals)) {
+        return;
+      }
 
       using (WriteArray()) {
         j.WriteValue(KremlinAst.DFunction);
-        using (WriteArray()) { // of (flag list * typ * lident * binder list * expr)
+        using (WriteArray()) { // of (CallingConvention.t option * flag list * typ * lident * binder list * expr)
+          WriteDefaultCallingConvention();
           using (WriteArray()) { // empty flag list
           }
           WriteTypeName(f.ResultType); // typ
@@ -1226,7 +1262,8 @@ namespace Microsoft.Dafny {
 
       using (WriteArray()) {
         j.WriteValue(KremlinAst.DExternal);
-        using (WriteArray()) { // of (lident * typ)
+        using (WriteArray()) { // of (CallingConvention.t option * lident * typ)
+          WriteDefaultCallingConvention();
           WriteLident(lident); // lident
 
           if (typeList.Count > 1) {
@@ -1301,9 +1338,14 @@ namespace Microsoft.Dafny {
         return;
       }
 
+      if (IsUnsupportedMethod(m.Name, m.Outs, m.Ins)) {
+        return;
+      }
+
       using (WriteArray()) {
         j.WriteValue(KremlinAst.DFunction);
-        using (WriteArray()) { // of (flag list * typ * lident * binder list * expr)
+        using (WriteArray()) { // of (CallingConvention.t option * flag list * typ * lident * binder list * expr)
+          WriteDefaultCallingConvention();
           using (WriteArray()) { // empty flag list
           }
           WriteMethodReturnType(m.Outs); // typ
@@ -1420,6 +1462,15 @@ namespace Microsoft.Dafny {
       j.Formatting = old;
     }
 
+    // Emit explicit StdCall, to match Spartan's expectations.
+    void WriteDefaultCallingConvention() {
+#if GENERATE_V17
+      using (WriteArray()) {
+        j.WriteValue(KremlinAst.StdCall);
+      }
+#endif
+    }
+
     void TrExprOpt(Expression expr, bool inLetExprBody) {
       Contract.Requires(expr != null);
       Contract.Requires(j != null);
@@ -1522,6 +1573,23 @@ namespace Microsoft.Dafny {
       else {
         WriteTypeName(type);
       }
+    }
+
+    // KRemlin extraction does not support some types.  Where possible, references to them are
+    // skipped, rather than emitting Kremlin JSON for C extraction that will not execute.
+    bool IsUnsupportedType(Type type) {
+      var xType = type.NormalizeExpand();
+      if (xType is IntType ||
+        xType is RealType ||
+        xType is BitvectorType ||
+        xType is ObjectType ||
+        xType is SetType ||
+        xType is SeqType ||
+        xType is MultiSetType ||
+        xType is MapType) {
+        return true;
+      }
+      return false;
     }
 
     void WriteTypeName(Type type) {
