@@ -88,11 +88,7 @@ namespace Microsoft.Dafny {
     }
 
     static class KremlinAst {
-#if GENERATE_V17
       public const string Version = "17";
-#else
-      public const string Version = "16";
-#endif
 
       // InputAst.Decl
       public const string DFunction = "DFunction";        // of (CallingConvention.t option * flag list * typ * lident * binder list * expr)
@@ -1464,11 +1460,9 @@ namespace Microsoft.Dafny {
 
     // Emit explicit StdCall, to match Spartan's expectations.
     void WriteDefaultCallingConvention() {
-#if GENERATE_V17
       using (WriteArray()) {
         j.WriteValue(KremlinAst.StdCall);
       }
-#endif
     }
 
     void TrExprOpt(Expression expr, bool inLetExprBody) {
