@@ -1690,6 +1690,7 @@ int StringToInt(string s, int defaultValue, string errString) {
 		Attributes decAttrs = null;
 		Attributes modAttrs = null;
 		BlockStmt body = null;
+		bool isPlainOlMethod = false;
 		bool isLemma = false;
 		bool isTwoStateLemma = false;
 		bool isConstructor = false;
@@ -1705,7 +1706,7 @@ int StringToInt(string s, int defaultValue, string errString) {
 		switch (la.kind) {
 		case 90: {
 			Get();
-			caption = "Methods";
+			isPlainOlMethod = true; caption = "Methods";
 			allowed = AllowedDeclModifiers.Ghost | AllowedDeclModifiers.Static 
 			 | AllowedDeclModifiers.Extern; 
 			break;
@@ -1783,11 +1784,12 @@ int StringToInt(string s, int defaultValue, string errString) {
 			if (la.kind == 56) {
 				GenericParameters(typeArgs);
 			}
-			Formals(true, !dmod.IsGhost, isTwoStateLemma, ins);
+			var isCompilable = (isPlainOlMethod && !dmod.IsGhost) || isConstructor; 
+			Formals(true, isCompilable, isTwoStateLemma, ins);
 			if (la.kind == 89) {
 				Get();
 				if (isConstructor) { SemErr(t, "constructors cannot have out-parameters"); } 
-				Formals(false, !dmod.IsGhost, false, outs);
+				Formals(false, isCompilable, false, outs);
 			}
 		} else if (la.kind == 63) {
 			Get();
