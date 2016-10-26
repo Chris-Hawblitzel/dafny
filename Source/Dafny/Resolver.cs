@@ -386,7 +386,8 @@ namespace Microsoft.Dafny
 
           if (reporter.Count(ErrorLevel.Error) == errorCount && !m.IsAbstract) {
             // compilation should only proceed if everything is good, including the signature (which preResolveErrorCount does not include);
-            var nw = new CompilationCloner(compilationModuleClones).CloneModuleDefinition(m, m.CompileName + "_Compile");
+            CompilationCloner cloner = new CompilationCloner(compilationModuleClones);
+            var nw = cloner.CloneModuleDefinition(m, m.CompileName + "_Compile");
             compilationModuleClones.Add(m, nw);
             var oldErrorsOnly = reporter.ErrorsOnly;
             reporter.ErrorsOnly = true; // turn off warning reporting for the clone
@@ -401,7 +402,7 @@ namespace Microsoft.Dafny
               var exportDecl = top as ModuleExportDecl;
               if (exportDecl == null)
                 continue;
-              exportDecl.Signature.CompileSignature = compileSig;
+              exportDecl.Signature.CompileSignature = cloner.CloneModuleSignature(exportDecl.Signature, compileSig);
             }
             // Now we're ready to resolve the cloned module definition, using the compile signature
 
@@ -415,7 +416,7 @@ namespace Microsoft.Dafny
           var alias = (AliasModuleDecl)decl;
           // resolve the path
           ModuleSignature p;
-          if (ResolveExport(alias.Root, alias.Module, alias.Path, alias.Exports, out p, reporter)) {
+          if (ResolveExport(alias, alias.Root, alias.Module, alias.Path, alias.Exports, out p, reporter)) {
             if (alias.Signature == null) {
               alias.Signature = p;
             }
@@ -425,7 +426,7 @@ namespace Microsoft.Dafny
         } else if (decl is ModuleFacadeDecl) {
           var abs = (ModuleFacadeDecl)decl;
           ModuleSignature p;
-          if (ResolveExport(abs.Root, abs.Module, abs.Path, abs.Exports, out p, reporter)) {
+          if (ResolveExport(abs, abs.Root, abs.Module, abs.Path, abs.Exports, out p, reporter)) {
             abs.OriginalSignature = p;
             // ModuleDefinition.ExclusiveRefinement may not be set at this point but ExclusiveRefinementCount will be.
             if (0 == abs.Root.Signature.ModuleDef.ExclusiveRefinementCount) {
@@ -1214,7 +1215,7 @@ namespace Microsoft.Dafny
         var alias = moduleDecl as AliasModuleDecl;
         ModuleDecl root;
         if (!bindings.TryLookupFilter(alias.Path[0], out root, 
-          m => alias != m && (alias.Exports.Count == 0 || m is LiteralModuleDecl)))
+          m => alias != m && (((alias.Module == m.Module) && (alias.Exports.Count == 0)) || m is LiteralModuleDecl)))
           reporter.Error(MessageSource.Resolver, alias.tok, ModuleNotFoundErrorMessage(0, alias.Path));
         else {
           dependencies.AddEdge(moduleDecl, root);
@@ -1224,7 +1225,7 @@ namespace Microsoft.Dafny
         var abs = moduleDecl as ModuleFacadeDecl;
         ModuleDecl root;
         if (!bindings.TryLookupFilter(abs.Path[0], out root,
-          m => abs != m && (abs.Exports.Count == 0 || m is LiteralModuleDecl)))
+          m => abs != m && (((abs.Module == m.Module) && (abs.Exports.Count == 0)) || m is LiteralModuleDecl)))
           reporter.Error(MessageSource.Resolver, abs.tok, ModuleNotFoundErrorMessage(0, abs.Path));
         else {
           dependencies.AddEdge(moduleDecl, root);
@@ -1748,7 +1749,7 @@ namespace Microsoft.Dafny
     }
 
 
-    public bool ResolveExport(ModuleDecl root, ModuleDefinition parent, List<IToken> Path, List<IToken> Exports, out ModuleSignature p, ErrorReporter reporter) {
+    public bool ResolveExport(ModuleDecl alias, ModuleDecl root, ModuleDefinition parent, List<IToken> Path, List<IToken> Exports, out ModuleSignature p, ErrorReporter reporter) {
       Contract.Requires(Path != null);
       Contract.Requires(Path.Count > 0);
       Contract.Requires(Exports != null);
@@ -1778,9 +1779,10 @@ namespace Microsoft.Dafny
           foreach(IToken export in Exports.Skip(1)){
             if (root.Signature.FindExport(export.val, out pp)){
               Contract.Assert(Object.ReferenceEquals(p.ModuleDef, pp.Signature.ModuleDef));
-              p = MergeSignature(p, pp.Signature);
-              p.ModuleDef = pp.Signature.ModuleDef;
-              p.CompileSignature = pp.Signature.CompileSignature;
+              ModuleSignature merged = MergeSignature(p, pp.Signature);
+              merged.ModuleDef = pp.Signature.ModuleDef;
+              merged.CompileSignature = MergeSignature(p.CompileSignature, pp.Signature.CompileSignature);
+              p = merged;
             } else {
               reporter.Error(MessageSource.Resolver, export, "No export set {0} in module {1}", export.val, decl.Name);
               p = null;
@@ -1791,8 +1793,8 @@ namespace Microsoft.Dafny
         }
       }
 
-      // Although the module is known, we demand it be imported before we're willing to access it
-      var thisImport = parent.TopLevelDecls.FirstOrDefault(t => t.Name == Path[0].val);
+      // Although the module is known, we demand it be imported before we're willing to access it.
+      var thisImport = parent.TopLevelDecls.FirstOrDefault(t => t.Name == Path[0].val && t != alias);
 
       if (thisImport == null || !(thisImport is ModuleDecl)){
 
@@ -2635,6 +2637,8 @@ namespace Microsoft.Dafny
       Contract.Requires(sub != null);
       Contract.Requires(super != null);
       Contract.Requires(errMsg != null);
+      keepConstraints = keepConstraints || (super is InferredTypeProxy ? ((InferredTypeProxy)super).KeepConstraints : false);
+      keepConstraints = keepConstraints || (sub is InferredTypeProxy ? ((InferredTypeProxy)sub).KeepConstraints : false);
       super = keepConstraints ? super.NormalizeExpandKeepConstraints() : super.NormalizeExpand().StripSubsetConstraints();
       sub = keepConstraints ? sub.NormalizeExpandKeepConstraints() : sub.NormalizeExpand().StripSubsetConstraints();
       var c = new TypeConstraint(super, sub, errMsg);
@@ -9259,7 +9263,13 @@ namespace Microsoft.Dafny
       } else if (type is MapType) {
         var t = (MapType)type;
         var dom = SubstType(t.Domain, subst);
+        if (dom is InferredTypeProxy) {
+          ((InferredTypeProxy)dom).KeepConstraints = true;
+        }
         var ran = SubstType(t.Range, subst);
+        if (ran is InferredTypeProxy) {
+          ((InferredTypeProxy)ran).KeepConstraints = true;
+        }
         if (dom == t.Domain && ran == t.Range) {
           return type;
         } else {
@@ -9268,6 +9278,9 @@ namespace Microsoft.Dafny
       } else if (type is CollectionType) {
         var t = (CollectionType)type;
         var arg = SubstType(t.Arg, subst);
+        if (arg is InferredTypeProxy) {
+          ((InferredTypeProxy)arg).KeepConstraints = true;
+        }
         if (arg == t.Arg) {
           return type;
         } else if (type is SetType) {
@@ -9321,6 +9334,9 @@ namespace Microsoft.Dafny
           for (int i = 0; i < t.TypeArgs.Count; i++) {
             Type p = t.TypeArgs[i];
             Type s = SubstType(p, subst);
+            if (s is InferredTypeProxy) {
+              ((InferredTypeProxy)s).KeepConstraints = true;
+            }
             if (s != p && newArgs == null) {
               // lazily construct newArgs
               newArgs = new List<Type>();
@@ -9735,7 +9751,7 @@ namespace Microsoft.Dafny
           } else {
             reporter.Error(MessageSource.Resolver, expr, "type conversions are not supported to this type (got {0})", e.ToType);
           }
-          e.Type = e.ToType.StripSubsetConstraints();
+          e.Type = e.ToType;
         } else {
           e.Type = new InferredTypeProxy();
         }
